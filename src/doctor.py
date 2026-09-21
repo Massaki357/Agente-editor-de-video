@@ -184,6 +184,15 @@ def check_keys(settings: Settings) -> list[Check]:
     return checks
 
 
+def check_face_model(settings: Settings) -> list[Check]:
+    from src.face import MODEL_NAME
+
+    path = settings.cache_dir / "models" / MODEL_NAME
+    if path.exists():
+        return [Check("Modelo de rosto", Status.OK, str(path))]
+    return [Check("Modelo de rosto", Status.WARN, "será baixado no 1º uso (~230 KB)")]
+
+
 def check_cache_dir(settings: Settings) -> list[Check]:
     try:
         settings.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -203,6 +212,7 @@ def run_checks(settings: Settings) -> list[Check]:
         ("GPU", lambda: check_gpu(settings)),
         ("Chaves de API", lambda: check_keys(settings)),
         ("Cache", lambda: check_cache_dir(settings)),
+        ("Modelo de rosto", lambda: check_face_model(settings)),
     ]
     results: list[Check] = []
     for label, fn in groups:

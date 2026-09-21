@@ -8,6 +8,7 @@ App local que transforma clipes em um vídeo vertical 1080x1920 editado. O plano
 - `uv run python -m src.transcribe clipe.mp4 [--sem-cache]`: imprime as palavras com tempos (cache por hash).
 - `uv run python -m src.pipeline <pasta|clipes...> -o output/final.mp4`: pipeline completo (hoje: transcrição → cortes de silêncio → render). Salva também `final.project.json`.
 - `uv run python -m src.render projeto.json -o saida.mp4`: renderiza um project.json já pronto.
+- `uv run python -m src.face clipe.mp4 -o debug.mp4`: rastreio de rosto + vídeo de debug (caixa real verde, centro da câmera em azul).
 - `uv run pytest -q`: testes rápidos; `-m integration` para os lentos (vídeos reais, GPU, rede).
 - `uv add <pacote>`: adicionar dependência (nunca edite o `uv.lock`).
 
@@ -17,7 +18,8 @@ App local que transforma clipes em um vídeo vertical 1080x1920 editado. O plano
 - Configuração só via `src.config.get_settings()`. O python-dotenv lê `KEY=   # comentário` como valor, e `config._clean` trata isso.
 - Trechos (`Clip.trechos`) ficam na grade de frames (1/30 s): `cuts.TimeMap` e o render produzem exatamente os mesmos tempos. Use `TimeMap` para converter t_src ↔ t_out.
 - Testes que dependem de vídeos do usuário ou de checagem manual ficam em `testes-pendentes.md`.
-- mediapipe 1.x não tem `mp.solutions`: use `mediapipe.tasks.python.vision.FaceDetector`.
+- mediapipe 1.x não tem `mp.solutions`: use `mediapipe.tasks.python.vision.FaceDetector`. O BlazeFace não enxerga rostos normais num quadro 16:9 inteiro; `face.square_crops` detecta em recortes quadrados.
+- `FaceTrack.cx/cy/w/h` = caminho suave da câmera (Etapas 6/9); `FaceTrack.box_at(t)` = caixa real do rosto, None sem rosto (Etapas 8/9).
 
 ## Automação do Claude Code (.claude/)
 - Hooks: bloqueiam edição de `.env`/`uv.lock`/`samples`; formatam `.py` com ruff e bloqueiam LangChain fora do client; rodam o pytest ao fim do turno se algum `.py` mudou; mostram o progresso das etapas ao iniciar a sessão.

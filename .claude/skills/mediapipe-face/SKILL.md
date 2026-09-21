@@ -29,7 +29,7 @@ with vision.FaceDetector.create_from_options(options) as detector:
 ## Pipeline de `face.py`
 1. Amostre a cada 2 a 3 frames. Converta a caixa para coordenadas normalizadas (0..1) do frame original.
 2. Vários rostos: pontue por `área * (1 - distância_ao_centro)` e fique com o maior.
-3. Sem rosto: repita a última posição conhecida; se o clipe começar sem rosto, use o centro (`cx=0.5, cy=0.4`).
+3. Sem rosto: repita a última posição conhecida; se o clipe começar sem rosto, use o centro do quadro (`cx=0.5, cy=0.5`), com o tamanho da 1ª detecção.
 4. Interpole linearmente os frames não amostrados.
 5. Suavize: zona morta (ignore deslocamento < ~2% da largura) e depois EMA (`alpha` ≈ 0,1 a 0,2 a 30 fps).
 6. Cache em `CACHE_DIR/face/<hash>.json`: lista por frame `{t, cx, cy, w, h, detectado}` mais os parâmetros usados (mudar um parâmetro invalida o cache).
@@ -38,4 +38,4 @@ with vision.FaceDetector.create_from_options(options) as detector:
 - Janela 9:16 com altura = altura do vídeo (horizontal); largura = `h * 9 / 16`. Centro x = `cx` do rosto, com o limite `[w/2, W - w/2]`.
 - Câmera suave: limite a velocidade (px/frame) além da EMA.
 - Zoom (Etapa 9): escala 1,0 → 1,15 com easing (`smoothstep`), sem cortar a caixa do rosto e sem sair do quadro.
-- Exporte a caixa do rosto **no espaço 1080x1920 final** por frame; a Etapa 8 usa essa caixa para posicionar imagens.
+- `FaceTrack.cx/cy/w/h` é o caminho da câmera (suave, com antecipação); `FaceTrack.box_at(t)` é a caixa real do rosto (None sem rosto). Converta a caixa real para o espaço 1080x1920 final; as Etapas 8 e 9 a usam para não cobrir nem cortar o rosto.
