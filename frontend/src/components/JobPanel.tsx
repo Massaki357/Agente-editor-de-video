@@ -24,7 +24,7 @@ export function JobAtual({ job, onCancelar, cancelando }: AtualProps) {
         )}
       </div>
       <div className="barra" aria-label="progresso">
-        <div style={{ width: `${pct}%` }} />
+        <div style={{ transform: `scaleX(${job.progresso})` }} />
         <span>{pct}%</span>
       </div>
       {job.mensagem && <p className={job.status === 'erro' ? 'erro-texto' : ''}>{job.mensagem}</p>}
