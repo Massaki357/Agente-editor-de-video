@@ -3,6 +3,8 @@
 Aqui estão os testes que dependem de você: gravar vídeos, colocar arquivos no projeto ou olhar o resultado.
 Depois de colocar os arquivos, avise: **"leia o testes-pendentes.md e execute os testes"**. Eu rodo tudo e atualizo o status aqui.
 
+Os testes automáticos rodam dentro de `API/` (`cd API && uv run pytest -m integration`). Você também pode fazer quase tudo pelo **frontend** (seção 3, item C5).
+
 Status: ⏳ aguardando arquivos · 👀 aguardando sua checagem visual/auditiva · ✅ concluído
 
 ---
@@ -30,7 +32,7 @@ A pasta `samples/` não vai para o GitHub (está no `.gitignore`), então pode u
 ### Chaves de API (no seu `.env`, só a partir da Etapa 8)
 | Variável | Onde conseguir | Situação atual |
 |---|---|---|
-| `PEXELS_API_KEY` | https://www.pexels.com/api/ (grátis) | vazia |
+| `PEXELS_API_KEY` | https://www.pexels.com/api/ (grátis) | ✅ definida |
 | `PIXABAY_API_KEY` | https://pixabay.com/api/docs/ (grátis) | vazia |
 
 ---
@@ -39,7 +41,7 @@ A pasta `samples/` não vai para o GitHub (está no `.gitignore`), então pode u
 
 | # | Etapa | Teste | Precisa de | Status |
 |---|---|---|---|---|
-| T1 | 2 | Teste de integração `tests/test_transcribe_integration.py`: Whisper real em `samples/1.mp4`, tempos das palavras em ordem, e a 2ª execução usando o cache em menos de 1 s (`uv run pytest -m integration`) | `samples/1.mp4` | ⏳ |
+| T1 | 2 | Teste de integração `tests/test_transcribe_integration.py`: Whisper real em `samples/1.mp4`, tempos das palavras em ordem, e a 2ª execução usando o cache em menos de 1 s (`cd API && uv run pytest -m integration`) | `samples/1.mp4` | ⏳ |
 | T2 | 2 | Transcrever `samples/2.mp4` e conferir se as hesitações ("é...", "hm", "né") e as repetições aparecem na transcrição, sem terem sido "limpas" pelo Whisper | `samples/2.mp4` | ⏳ |
 | T4 | 3 | `tests/test_pipeline_integration.py`: pipeline completo (transcrição, cortes e render) em `samples/1.mp4` + `samples/2.mp4`. Confere 30 fps, duração menor que a original e nenhuma pausa maior que ~0,66 s no resultado. Salva o vídeo em `output/etapa3_samples.mp4` para a checagem C2 | `samples/1.mp4`, `samples/2.mp4` | ⏳ |
 | T5 | 4 | `tests/test_llm_integration.py`: LLM real (gpt-5-mini) em `samples/2.mp4`. Confere que ele marca pelo menos um erro de fala, que remove no máximo 30% do clipe, e mostra o que foi marcado | `samples/2.mp4` + `OPENAI_API_KEY` (já configurada) | ⏳ |
@@ -56,9 +58,10 @@ Eu preparo tudo e deixo aqui os tempos exatos para você conferir no player (VLC
 | C2a | 3 | **Já dá para fazer agora:** ouça `output/etapa3_voz_sintetica.mp4` (resultado dos cortes em 2 clipes de voz sintética; os originais são `output/etapa3_original_1.mp4` e `_2.mp4`). Confira se nenhuma palavra foi cortada, sem estalos nas emendas em 1,5 / 5,6 / 7,1 / 7,9 / 10,1 / 12,8 s e com o fim de "simples." (~6,6 s) inteiro | Nada: os arquivos já estão em `output/` | 👀 |
 | C2 | 3 | O vídeo cortado não tem pausas longas, **não corta o começo nem o fim das palavras** e **não tem estalos ("clicks") nas emendas** | Depois do T4, assista `output/etapa3_samples.mp4` com fone de ouvido. Se alguma palavra parecer cortada, me diga o segundo aproximado: dá para aumentar a margem (`--margem 0.12`) ou mudar o limiar (`--ruido-db -40`) | ⏳ |
 | C3a | 4 | **Já dá para fazer agora:** compare `output/etapa4_original_erros.mp4` (voz sintética com falso começo, "o o o", take errado com "errei, vou de novo" e hesitações) com `output/etapa4_resultado.mp4`. Confira se os cortes soam naturais e se nada importante sumiu | Nada: os arquivos já estão em `output/` | 👀 |
-| C3 | 4 | Com a sua voz: rode `uv run python -m src.pipeline samples/2.mp4 -o output/etapa4_samples.mp4` (ou me peça) e confira se o LLM removeu os erros que você gravou de propósito e **nada além disso**. Atenção à repetição "o o o": o Whisper às vezes junta tudo num "o" só antes de o LLM ver. Também preste atenção às emendas no meio da fala, sem pausa: palavras de uma vogal só coladas à vizinha (ex.: o "é" em "problema é que") podem deixar um restinho de som | `samples/2.mp4` | ⏳ |
+| C3 | 4 | Com a sua voz: no frontend, importe `samples/` e rode "Gerar vídeo" com os cortes do LLM ligados (ou, em `API/`, `uv run python -m src.pipeline ../samples/2.mp4 -o ../output/etapa4_samples.mp4`) e confira se o LLM removeu os erros que você gravou de propósito e **nada além disso**. Atenção à repetição "o o o": o Whisper às vezes junta tudo num "o" só antes de o LLM ver. Também preste atenção às emendas no meio da fala, sem pausa: palavras de uma vogal só coladas à vizinha (ex.: o "é" em "problema é que") podem deixar um restinho de som | `samples/2.mp4` | ⏳ |
 | C4a | 5 | **Já dá para fazer agora:** assista `output/etapa5_debug_rosto.mp4` (foto de teste parada com a câmera tremendo, depois andando para a direita). A caixa **verde** (suavizada) deve acompanhar o rosto **sem tremer**, mesmo quando a vermelha (detecção bruta) treme. Durante o movimento, a verde fica um pouco atrás da vermelha (zona morta de 2%); isso é esperado | Nada: o arquivo já está em `output/` | 👀 |
-| C4 | 5 | O mesmo, com o seu vídeo: depois do T6, assista `output/etapa5_debug_samples3.mp4`. A **cruz azul-clara** (câmera) deve andar suave, a **caixa verde** deve cobrir o rosto e, nos 2 primeiros segundos sem rosto, a cruz fica no centro e não há caixa. Grave o `3.mp4` com o rosto ocupando pelo menos ~15% da altura do quadro: o detector não pega rostos menores que ~13% (plano muito aberto) | `samples/3.mp4` | ⏳ |
+| C4 | 5 | O mesmo, com o seu vídeo: depois do T6, assista `output/etapa5_debug_samples3.mp4` (ou, no frontend, rode "Rastrear rosto" e abra o vídeo de debug do clipe). A **cruz azul-clara** (câmera) deve andar suave, a **caixa verde** deve cobrir o rosto e, nos 2 primeiros segundos sem rosto, a cruz fica no centro e não há caixa. Grave o `3.mp4` com o rosto ocupando pelo menos ~15% da altura do quadro: o detector não pega rostos menores que ~13% (plano muito aberto) | `samples/3.mp4` | ⏳ |
+| C5 | 5b | **Frontend:** com a API (`cd API && uv run python -m src.api`) e o frontend (`cd frontend && npm install && npm run dev`) rodando, abra http://localhost:5173. Crie um projeto, importe a pasta `samples` (ou envie vídeos), reordene os clipes, rode "Gerar vídeo" e assista o resultado. Anote qualquer erro ou tela confusa: o design será feito na Etapa 10 | Nada além dos vídeos | 👀 |
 
 ---
 

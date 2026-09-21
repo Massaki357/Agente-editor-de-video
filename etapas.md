@@ -6,12 +6,13 @@
 2. Peça uma etapa por vez: *"Leia o etapas.md e implemente a Etapa N. Siga as decisões fixas e só marque como concluída se os critérios de aceite passarem."*
 3. Ao terminar cada etapa, rode os testes, faça commit e só então peça a próxima.
 4. Não pule etapas. Cada uma entrega algo utilizável e a seguinte depende dela.
+5. A partir da Etapa 5b, toda etapa que muda o que o usuário vê ou faz também expõe isso na **API** (endpoint ou opção de job, com testes em `API/tests/test_api.py`) e no **frontend** (controle mínimo funcional para testar).
 
 ---
 
 ## Visão geral
 
-Aplicativo local que recebe vários clipes de vídeo em sequência e gera um vídeo vertical (1080x1920) editado:
+Aplicativo local em duas partes: uma **API** (FastAPI, em `API/`) com todo o processamento e um **frontend web** (em `frontend/`) que só conversa com a API. Ele recebe vários clipes de vídeo em sequência e gera um vídeo vertical (1080x1920) editado:
 
 - Corta silêncios, pausas e erros de fala
 - Legendas estilizadas queimadas no vídeo
@@ -37,7 +38,9 @@ Aplicativo local que recebe vários clipes de vídeo em sequência e gera um ví
 | Legendas | Arquivo `.ass` (não `.srt`), queimado com o filtro `ass=` |
 | Imagens | Pexels (principal) e Pixabay (fallback); `rembg` para o efeito sticker |
 | Ordenação de clipes | `natsort` (numérica, não alfabética) |
-| Interface | PySide6, com `QListWidget` com drag-and-drop |
+| API | **FastAPI** em `API/src/api/`, servida por uvicorn (`python -m src.api`). Todo processamento pesado vira um **job** numa fila com um worker (GPU e Whisper não rodam em paralelo), com progresso por etapa, log e cancelamento. Projetos ficam em disco em `API/data/` |
+| Interface | **Frontend web** em `frontend/` (Vite + React + TypeScript). Não tem lógica de edição: chama a API e acompanha os jobs por polling. Substitui a interface PySide6 prevista originalmente |
+| Layout do repositório | Backend inteiro (código, testes, dependências, cache) em `API/`; frontend em `frontend/`; `samples/` (vídeos de teste) e `output/` (resultados para conferir) na raiz |
 | Cache | Por hash do arquivo (transcrição e rastreio de rosto), em disco |
 | Formato final | 1080x1920, 30 fps, áudio 48 kHz |
 
@@ -58,35 +61,47 @@ WHISPER_MODEL=large-v3-turbo      # use small/medium se for CPU
 WHISPER_DEVICE=auto               # auto | cuda | cpu
 PEXELS_API_KEY=
 PIXABAY_API_KEY=
-CACHE_DIR=.cache
+CACHE_DIR=.cache                  # relativo à pasta API/
+DATA_DIR=data                     # projetos da API (relativo a API/)
+LOG_DIR=logs
+LOG_LEVEL=INFO
 ```
+
+O `.env` pode ficar na raiz do repositório ou em `API/.env` (este tem precedência; valores vazios nele não escondem os da raiz).
 
 ### Estrutura de pastas alvo
 
 ```
-editor-videos/
-├── etapas.md
-├── .env.example
-├── pyproject.toml
-├── src/
-│   ├── config.py
-│   ├── project.py          # modelo do projeto/timeline (Pydantic)
-│   ├── clips.py            # listar e ordenar clipes
-│   ├── cache.py
-│   ├── transcribe.py
-│   ├── cuts.py             # silêncios, erros de fala, remap de tempo
-│   ├── face.py             # rastreio de rosto
-│   ├── reframe.py          # crop 9:16 e zoom
-│   ├── captions.py         # gerador de .ass
-│   ├── images.py           # busca, rembg, posicionamento
-│   ├── render.py           # passadas de render e concatenação
-│   ├── llm/
-│   │   ├── client.py
-│   │   ├── schemas.py
-│   │   └── prompts/
-│   └── ui/
-├── tests/
-└── samples/                # vídeos curtos para teste (não versionar)
+Editor de Videos/
+├── etapas.md                # este plano (fonte da verdade)
+├── testes-pendentes.md      # testes que dependem de vídeos/checagens do usuário
+├── CLAUDE.md
+├── .env                     # segredos (não versionar); também aceito em API/.env
+├── API/                     # backend (Python 3.12, uv)
+│   ├── pyproject.toml, uv.lock, .python-version, .env.example
+│   ├── src/
+│   │   ├── config.py
+│   │   ├── project.py       # modelo do projeto/timeline (Pydantic)
+│   │   ├── clips.py         # listar e ordenar clipes
+│   │   ├── cache.py
+│   │   ├── transcribe.py
+│   │   ├── cuts.py          # silêncios, erros de fala, remap de tempo
+│   │   ├── face.py          # rastreio de rosto
+│   │   ├── reframe.py       # crop 9:16 e zoom
+│   │   ├── captions.py      # gerador de .ass
+│   │   ├── images.py        # busca, rembg, posicionamento
+│   │   ├── render.py        # passadas de render e concatenação
+│   │   ├── pipeline.py      # orquestra as etapas (usado pela API e pela CLI)
+│   │   ├── doctor.py
+│   │   ├── llm/             # client.py (único ponto com LangChain), schemas.py, prompts/
+│   │   └── api/             # FastAPI: app.py, routes/, jobs.py (fila), store.py (projetos), tasks.py
+│   ├── tests/
+│   ├── fonts/
+│   ├── data/                # projetos da API (não versionar)
+│   └── .cache/              # transcrições, rastreios, modelos (não versionar)
+├── frontend/                # Vite + React + TypeScript
+├── samples/                 # vídeos curtos para teste (não versionar)
+└── output/                  # vídeos gerados para conferência (não versionar)
 ```
 
 ---
@@ -96,7 +111,7 @@ editor-videos/
 **Objetivo:** esqueleto rodando, com dependências e verificação do ambiente.
 
 **Tarefas**
-- Criar a estrutura de pastas acima e o `pyproject.toml` com as dependências: `faster-whisper`, `mediapipe`, `opencv-python`, `numpy`, `pydantic`, `python-dotenv`, `natsort`, `langchain-core`, `langchain-openai`, `langchain-anthropic`, `requests`, `rembg`, `PySide6`, `pytest`.
+- Criar a estrutura de pastas acima e o `pyproject.toml` com as dependências: `faster-whisper`, `mediapipe`, `opencv-python`, `numpy`, `pydantic`, `python-dotenv`, `natsort`, `langchain-core`, `langchain-openai`, `langchain-anthropic`, `requests`, `rembg`, `PySide6`, `pytest`. *(Depois da Etapa 5b: `PySide6` saiu e entrou `fastapi[standard]`.)*
 - `src/config.py` lê o `.env` e expõe as configurações tipadas.
 - Comando de verificação `python -m src.doctor`: confere se FFmpeg/ffprobe estão no PATH, se a GPU está disponível e se as chaves de API existem.
 - Configurar logging padrão (arquivo + console).
@@ -206,6 +221,28 @@ editor-videos/
 
 ---
 
+## Etapa 5b: API (FastAPI) e frontend funcional *(antecipada)*
+
+**Objetivo:** separar o sistema em API + frontend antes do reenquadramento, para testar cada etapa seguinte pelo navegador.
+
+**Tarefas**
+- Mover todo o backend para `API/` (código, testes, `pyproject.toml`, cache). `samples/` e `output/` continuam na raiz.
+- `API/src/api/`: FastAPI com prefixo `/api`:
+  - sistema: `GET /health`, `GET /config` (sem segredos), `GET /doctor`;
+  - projetos: `GET/POST /projects`, `GET/PATCH/DELETE /projects/{id}`;
+  - clipes: upload (`POST /projects/{id}/clips`), importar pasta local em ordem natural (`POST /projects/{id}/clips/import`), reordenar (`PUT .../clips/order`), remover, vídeo com suporte a Range, miniatura, transcrição e rastreio de rosto em cache;
+  - jobs: `POST /projects/{id}/jobs` (`transcrever`, `rosto`, `gerar` com opções de corte), `GET /jobs/{id}` (status, etapa, progresso, log, resultado), `POST /jobs/{id}/cancel`;
+  - arquivos gerados: `GET /projects/{id}/files/{nome}` (vídeo final e vídeos de debug).
+- Fila de jobs com um worker, progresso por etapa, cancelamento cooperativo, persistência em disco; projeto com job ativo não pode ser alterado (409).
+- `frontend/`: página funcional (sem foco em design) para criar projetos, importar/enviar clipes, reordenar, rodar os jobs, acompanhar o progresso e assistir ao resultado.
+- Atualizar hooks, skills, subagentes e documentação para o novo layout.
+
+**Critérios de aceite**
+- Todos os testes do núcleo continuam passando em `API/`, mais os testes da API (TestClient) cobrindo projetos, clipes, jobs, conflito (409), cancelamento e erro.
+- Pelo frontend: criar um projeto, importar uma pasta, reordenar, gerar o vídeo e assisti-lo, sem usar o terminal.
+
+---
+
 ## Etapa 6: Reenquadramento vertical e render em duas passadas
 
 **Objetivo:** vídeo 9:16 com o rosto centralizado.
@@ -279,21 +316,21 @@ editor-videos/
 
 ---
 
-## Etapa 10: Interface (PySide6)
+## Etapa 10: Interface web (frontend)
 
-**Objetivo:** usar tudo sem terminal.
+**Objetivo:** usar tudo sem terminal, com um frontend bem desenhado sobre a API. A base funcional já existe desde a Etapa 5b; esta etapa é o design e o que faltar das Etapas 6 a 9.
 
 **Tarefas**
-- Tela principal: botão "Abrir pasta" (preenche a lista via ordenação natural) e "Adicionar vídeos" (ordem de seleção).
-- `QListWidget` com miniatura, arrastar para reordenar, remover.
+- Tela principal: "Abrir pasta" (importação em ordem natural) e "Adicionar vídeos" (upload na ordem de seleção).
+- Lista de clipes com miniatura, **arrastar para reordenar** e remover.
 - Opções: ligar/desligar cortes, legendas, imagens e zooms; estilo da legenda; modelo do LLM.
-- Botão "Gerar preview" (mostra as sugestões de imagem para aprovar) e "Renderizar".
-- Processamento em thread separada (`QThread`), com barra de progresso por etapa e botão cancelar.
-- Salvar e abrir projeto (`project.json`).
+- Botão "Gerar preview" (mostra as sugestões de imagem para aprovar ou trocar) e "Renderizar".
+- Processamento sempre como job da API, com barra de progresso por etapa e botão cancelar.
+- Salvar e abrir projetos (a API já os mantém em `API/data/`).
 
 **Critérios de aceite**
 - Reordenar na lista e renderizar reflete a nova ordem no vídeo.
-- A interface não trava durante o processamento.
+- A interface não trava durante o processamento (os jobs rodam na API; o frontend só consulta o estado).
 
 ---
 
@@ -301,11 +338,12 @@ editor-videos/
 
 **Tarefas**
 - Mensagens de erro claras: FFmpeg ausente, chave de API inválida, clipe sem áudio, clipe sem rosto.
-- Fila de jobs para renderizar vários projetos em sequência.
+- Fila de jobs para renderizar vários projetos em sequência *(a fila da API já processa jobs de vários projetos em sequência desde a Etapa 5b; falta expor a fila na interface)*.
 - Logs por execução (tempo de cada etapa, tokens usados e custo estimado do LLM).
+- Cancelamento e progresso mais finos nos jobs `rosto` e `transcrever` (hoje só entre clipes).
 - Testes de integração com 2 clipes curtos em `samples/`.
 - `README.md` com instalação, `.env` e uso.
-- Empacotamento opcional (PyInstaller) para rodar sem instalar Python.
+- Empacotamento opcional: a API servindo o build do frontend (`frontend/dist`) para rodar tudo com um comando.
 
 **Critérios de aceite**
 - Fluxo completo com 3 clipes, do zero até o vídeo final, sem intervenção manual além da aprovação do preview.
@@ -320,9 +358,10 @@ editor-videos/
 - [x] Etapa 3: Cortes por silêncio e remap de tempo
 - [x] Etapa 4: Camada LLM e cortes de erros de fala
 - [x] Etapa 5: Rastreio de rosto
+- [x] Etapa 5b: API (FastAPI) e frontend funcional
 - [ ] Etapa 6: Reenquadramento vertical
 - [ ] Etapa 7: Legendas
 - [ ] Etapa 8: Imagens
 - [ ] Etapa 9: Zooms
-- [ ] Etapa 10: Interface
+- [ ] Etapa 10: Interface web (design)
 - [ ] Etapa 11: Polimento

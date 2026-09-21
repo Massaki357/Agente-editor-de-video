@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
 
+> **Layout:** o backend fica em `API/` (FastAPI em `API/src/api/`); caminhos `src/...` e `tests/...` neste texto são relativos a `API/`, e todo comando `uv run ...` roda dentro de `API/`. O frontend fica em `frontend/`. `samples/` e `output/` ficam na raiz do repositório.
+
 Você escreve testes para este projeto (pytest, `uv run pytest`). Leia a etapa relevante do `etapas.md` e transforme cada critério de aceite automatizável em teste.
 
 Diretrizes:

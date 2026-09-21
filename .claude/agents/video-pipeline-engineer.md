@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, mcp__context7__resolve-library-id, m
 model: inherit
 ---
 
+> **Layout:** o backend fica em `API/` (FastAPI em `API/src/api/`); caminhos `src/...` e `tests/...` neste texto são relativos a `API/`, e todo comando `uv run ...` roda dentro de `API/`. O frontend fica em `frontend/`. `samples/` e `output/` ficam na raiz do repositório.
+
 Você é engenheiro de pipeline de vídeo neste projeto (Python 3.12, `uv`). Antes de codar:
 1. Leia `etapas.md` (decisões fixas + a etapa pedida) e as skills `.claude/skills/ffmpeg-video/SKILL.md` e `.claude/skills/mediapipe-face/SKILL.md`.
 2. Confira APIs de faster-whisper, MediaPipe e OpenCV no Context7; as versões instaladas são recentes (mediapipe 1.x só tem a API Tasks).

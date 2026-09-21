@@ -12,7 +12,7 @@ root = Path(os.environ.get("CLAUDE_PROJECT_DIR", "."))
 etapas = root / "etapas.md"
 if etapas.exists():
     text = etapas.read_text(encoding="utf-8")
-    items = re.findall(r"^- \[( |x)\] (Etapa \d+: .+)$", text, re.MULTILINE)
+    items = re.findall(r"^- \[( |x)\] (Etapa \d+b?: .+)$", text, re.MULTILINE)
     done = [name for mark, name in items if mark == "x"]
     todo = [name for mark, name in items if mark == " "]
     print(f"Progresso do etapas.md: {len(done)}/{len(items)} etapas concluídas.")

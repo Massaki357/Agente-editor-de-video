@@ -3,6 +3,8 @@ name: ffmpeg-video
 description: Receitas de FFmpeg/ffprobe e pipe OpenCV→FFmpeg usadas no editor de vídeos (metadados, silencedetect, cortes, concat, fades, legendas .ass, overlay com enable). Use ao escrever clips.py, cuts.py, render.py, captions.py ou images.py.
 ---
 
+> **Layout:** o backend fica em `API/` (FastAPI em `API/src/api/`); caminhos `src/...` e `tests/...` neste texto são relativos a `API/`, e todo comando `uv run ...` roda dentro de `API/`. O frontend fica em `frontend/`. `samples/` e `output/` ficam na raiz do repositório.
+
 # FFmpeg no editor de vídeos
 
 Sempre chame FFmpeg via `subprocess.run([...], check=True, capture_output=True)` com lista de argumentos (nunca `shell=True`) e `-hide_banner -nostdin -y`. Caminhos no Windows podem ter espaços; a lista de argumentos resolve isso.

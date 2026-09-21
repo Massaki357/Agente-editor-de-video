@@ -21,7 +21,7 @@ if not marker.exists() or data.get("stop_hook_active"):
 
 result = subprocess.run(
     ["uv", "run", "--quiet", "pytest", "-q", "-x", "-m", "not integration", "--no-header"],
-    cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600,
+    cwd=root / "API", capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600,
 )
 # 5 = nenhum teste coletado
 if result.returncode in (0, 5):

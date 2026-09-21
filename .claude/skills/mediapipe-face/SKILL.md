@@ -3,6 +3,8 @@ name: mediapipe-face
 description: Rastreio de rosto com MediaPipe (API Tasks) para o reenquadramento 9:16, incluindo suavização EMA, zona morta, escolha do rosto e cache. Use ao implementar src/face.py e src/reframe.py (Etapas 5, 6 e 9).
 ---
 
+> **Layout:** o backend fica em `API/` (FastAPI em `API/src/api/`); caminhos `src/...` e `tests/...` neste texto são relativos a `API/`, e todo comando `uv run ...` roda dentro de `API/`. O frontend fica em `frontend/`. `samples/` e `output/` ficam na raiz do repositório.
+
 # Rastreio de rosto (MediaPipe)
 
 ## Versão instalada: mediapipe 1.0.x

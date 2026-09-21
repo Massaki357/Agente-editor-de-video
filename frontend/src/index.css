@@ -1,0 +1,346 @@
+/* CSS provisório: só o suficiente para testar a API. O design vem depois. */
+:root {
+  --fundo: #f4f5f7;
+  --cartao: #ffffff;
+  --texto: #1d2127;
+  --suave: #6b7280;
+  --borda: #d7dbe0;
+  --primario: #2457c5;
+  --ok: #1d7a3a;
+  --aviso: #a86200;
+  --falta: #b42318;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  color: var(--texto);
+  background: var(--fundo);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #15171b;
+    --cartao: #1f2228;
+    --texto: #e6e8eb;
+    --suave: #9aa1ab;
+    --borda: #353a42;
+    --primario: #6d9bff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+}
+
+h1 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+h2,
+h3,
+h4 {
+  margin: 0 0 0.6rem;
+}
+
+a {
+  color: var(--primario);
+}
+
+button {
+  font: inherit;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--cartao);
+  color: var(--texto);
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--primario);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.primario {
+  background: var(--primario);
+  border-color: var(--primario);
+  color: #fff;
+}
+button.perigo {
+  color: var(--falta);
+}
+button.pequeno {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+}
+button.marcado {
+  border-color: var(--primario);
+  color: var(--primario);
+}
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primario);
+  text-decoration: underline;
+}
+
+input:not([type='checkbox']):not([type='file']) {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--cartao);
+  color: var(--texto);
+}
+input.largo {
+  flex: 1;
+  min-width: 16rem;
+}
+input.titulo {
+  font-size: 1.15rem;
+  font-weight: 600;
+  flex: 1;
+}
+input[type='number'] {
+  width: 6rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--borda);
+  vertical-align: top;
+}
+
+pre {
+  background: rgba(127, 127, 127, 0.1);
+  padding: 0.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+fieldset {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.2rem;
+  align-items: center;
+}
+fieldset label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cabecalho {
+  background: var(--cartao);
+  border-bottom: 1px solid var(--borda);
+  padding: 0.8rem 1rem;
+}
+.painel {
+  margin-top: 0.8rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) 1fr;
+  gap: 1rem;
+  padding: 1rem;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cartao {
+  background: var(--cartao);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.suave {
+  color: var(--suave);
+}
+.compacta {
+  margin: 0 0 0.8rem;
+  padding-left: 1.2rem;
+}
+
+.selo {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  white-space: nowrap;
+}
+.selo.ok,
+.selo.status-concluido {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+.selo.aviso,
+.selo.status-rodando,
+.selo.status-pendente {
+  color: var(--aviso);
+  border-color: var(--aviso);
+}
+.selo.falta,
+.selo.status-erro {
+  color: var(--falta);
+  border-color: var(--falta);
+}
+.selos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.erro {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--falta);
+  color: var(--falta);
+  background: rgba(180, 35, 24, 0.08);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+.erro-texto {
+  color: var(--falta);
+}
+.aviso-texto {
+  color: var(--aviso);
+}
+
+.projetos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.projetos li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  align-items: center;
+  padding: 0.4rem;
+  border-radius: 6px;
+}
+.projetos li.ativo {
+  background: rgba(36, 87, 197, 0.1);
+}
+.projetos li .suave {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+}
+
+.clipes {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+.clipes > li {
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.clipe {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+.miniatura {
+  width: 120px;
+  height: 90px;
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 0;
+}
+.ordem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.detalhe {
+  margin-top: 0.5rem;
+}
+.player {
+  max-width: 100%;
+  max-height: 60vh;
+  background: #000;
+  display: block;
+}
+.player.final {
+  max-height: 70vh;
+}
+.texto {
+  line-height: 1.5;
+}
+.rolagem {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.barra {
+  position: relative;
+  height: 1.2rem;
+  background: rgba(127, 127, 127, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.4rem 0;
+}
+.barra > div {
+  height: 100%;
+  background: var(--primario);
+  transition: width 0.3s;
+}
+.barra > span {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  line-height: 1.2rem;
+  mix-blend-mode: difference;
+  color: #fff;
+}
+.log {
+  max-height: 16rem;
+  overflow-y: auto;
+}

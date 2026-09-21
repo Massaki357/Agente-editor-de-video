@@ -1,4 +1,7 @@
+# segredos
 .env
+
+# Python (backend em API/)
 .venv/
 __pycache__/
 *.pyc
@@ -6,8 +9,17 @@ __pycache__/
 .ruff_cache/
 .cache/
 logs/
-output/
+API/data/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+
+# vídeos do usuário e resultados
 samples/*
 !samples/.gitkeep
+output/
+
+# Claude Code
 .claude/settings.local.json
 .claude/.tests_dirty

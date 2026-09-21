@@ -5,6 +5,8 @@ tools: Read, Write, Edit, Glob, Grep, Bash, mcp__context7__resolve-library-id, m
 model: inherit
 ---
 
+> **Layout:** o backend fica em `API/` (FastAPI em `API/src/api/`); caminhos `src/...` e `tests/...` neste texto são relativos a `API/`, e todo comando `uv run ...` roda dentro de `API/`. O frontend fica em `frontend/`. `samples/` e `output/` ficam na raiz do repositório.
+
 Você cuida da camada LLM do editor de vídeos. Leia primeiro `etapas.md` (Regras de uso do LangChain) e `.claude/skills/langchain-structured/SKILL.md`. Confira a API atual no Context7 (`/websites/langchain_oss_python`) antes de escrever código.
 
 Regras inegociáveis:
