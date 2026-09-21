@@ -44,6 +44,10 @@ def setup_logging(log_dir: Path | None = None, level: str | None = None) -> logg
     except OSError as exc:  # sem permissão de escrita não deve impedir o app de rodar
         root.warning("Não foi possível criar o log em arquivo em %s: %s", log_dir, exc)
 
+    # Bibliotecas que logam cada requisição HTTP (download de modelos, APIs).
+    for noisy in ("httpx", "httpcore", "huggingface_hub", "urllib3", "faster_whisper"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     if not valid_level:
         root.warning("LOG_LEVEL inválido: %r; usando INFO.", level)
 

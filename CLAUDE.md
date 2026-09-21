@@ -5,6 +5,7 @@ App local que transforma clipes em um vídeo vertical 1080x1920 editado. O plano
 ## Comandos
 - `uv sync`: instala as dependências (Python 3.12 via `.python-version`). Para a GPU no Whisper: `uv sync --extra gpu`.
 - `uv run python -m src.doctor`: verifica FFmpeg, GPU, pacotes e chaves.
+- `uv run python -m src.transcribe clipe.mp4 [--sem-cache]`: imprime as palavras com tempos (cache por hash).
 - `uv run pytest -q`: testes rápidos; `-m integration` para os lentos (vídeos reais, GPU, rede).
 - `uv add <pacote>`: adicionar dependência (nunca edite o `uv.lock`).
 

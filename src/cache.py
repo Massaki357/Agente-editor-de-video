@@ -69,7 +69,7 @@ def write_json_cache(kind: str, key: str, data: Any, cache_dir: Path | None = No
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
