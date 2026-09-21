@@ -315,7 +315,7 @@ editor-videos/
 ## Checklist geral
 
 - [x] Etapa 0: Setup
-- [ ] Etapa 1: Projeto e lista de clipes
+- [x] Etapa 1: Projeto e lista de clipes
 - [ ] Etapa 2: Transcrição
 - [ ] Etapa 3: Cortes por silêncio e remap de tempo
 - [ ] Etapa 4: Camada LLM e cortes de erros de fala
