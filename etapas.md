@@ -317,7 +317,7 @@ editor-videos/
 - [x] Etapa 0: Setup
 - [x] Etapa 1: Projeto e lista de clipes
 - [x] Etapa 2: Transcrição
-- [ ] Etapa 3: Cortes por silêncio e remap de tempo
+- [x] Etapa 3: Cortes por silêncio e remap de tempo
 - [ ] Etapa 4: Camada LLM e cortes de erros de fala
 - [ ] Etapa 5: Rastreio de rosto
 - [ ] Etapa 6: Reenquadramento vertical

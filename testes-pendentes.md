@@ -41,6 +41,7 @@ A pasta `samples/` não vai para o GitHub (está no `.gitignore`), então pode u
 |---|---|---|---|---|
 | T1 | 2 | Teste de integração `tests/test_transcribe_integration.py`: Whisper real em `samples/1.mp4`, tempos das palavras em ordem, e a 2ª execução usando o cache em menos de 1 s (`uv run pytest -m integration`) | `samples/1.mp4` | ⏳ |
 | T2 | 2 | Transcrever `samples/2.mp4` e conferir se as hesitações ("é...", "hm", "né") e as repetições aparecem na transcrição, sem terem sido "limpas" pelo Whisper | `samples/2.mp4` | ⏳ |
+| T4 | 3 | `tests/test_pipeline_integration.py`: pipeline completo (transcrição, cortes e render) em `samples/1.mp4` + `samples/2.mp4`. Confere 30 fps, duração menor que a original e nenhuma pausa maior que ~0,66 s no resultado. Salva o vídeo em `output/etapa3_samples.mp4` para a checagem C2 | `samples/1.mp4`, `samples/2.mp4` | ⏳ |
 | T3 | 1 | Ler `samples/4.mp4` com o ffprobe e confirmar que a resolução sai em pé (largura menor que a altura) | `samples/4.mp4` (opcional) | ⏳ |
 
 ## 3. Checagens que só você pode fazer
@@ -50,8 +51,14 @@ Eu preparo tudo e deixo aqui os tempos exatos para você conferir no player (VLC
 | # | Etapa | O que conferir | Como | Status |
 |---|---|---|---|---|
 | C1 | 2 | Os timestamps das palavras batem com o áudio em 3 pontos (começo, meio e fim) | Depois do T1, eu escrevo aqui 3 palavras de `samples/1.mp4` com o tempo de cada uma. Você abre o vídeo, pula para cada tempo e confirma se a palavra é dita ali (tolerância de cerca de 0,3 s) | ⏳ |
+| C2a | 3 | **Já dá para fazer agora:** ouça `output/etapa3_voz_sintetica.mp4` (resultado dos cortes em 2 clipes de voz sintética; os originais são `output/etapa3_original_1.mp4` e `_2.mp4`). Confira se nenhuma palavra foi cortada, sem estalos nas emendas em 1,5 / 5,6 / 7,1 / 7,9 / 10,1 / 12,8 s e com o fim de "simples." (~6,6 s) inteiro | Nada: os arquivos já estão em `output/` | 👀 |
+| C2 | 3 | O vídeo cortado não tem pausas longas, **não corta o começo nem o fim das palavras** e **não tem estalos ("clicks") nas emendas** | Depois do T4, assista `output/etapa3_samples.mp4` com fone de ouvido. Se alguma palavra parecer cortada, me diga o segundo aproximado: dá para aumentar a margem (`--margem 0.12`) ou mudar o limiar (`--ruido-db -40`) | ⏳ |
 
 ---
 
 ## Histórico
 - Etapa 2: validada com uma fala sintética gerada pela voz do Windows. O Whisper acertou as 28 palavras e os tempos batem com as pausas detectadas pelo `silencedetect` (diferença de até 0,2 s). A exceção é o início da primeira palavra depois de uma pausa longa, que o Whisper antecipa em cerca de 0,4 s; a Etapa 3 compensa isso alinhando os cortes ao `silencedetect`. Falta a validação com a sua voz real (T1, T2 e C1).
+- Etapa 3: validada com 2 clipes de voz sintética com pausas de 1 a 2 s. O vídeo saiu com 57% de corte, nenhuma pausa de 0,4 s ou mais, as 32 palavras intactas (conferido transcrevendo o resultado), áudio e vídeo com a mesma duração e as emendas sem estalos (medido no áudio). O verificador reprovou 3 vezes antes de aprovar, e cada rodada corrigiu um problema real:
+  - o fim das palavras era cortado;
+  - uma pausa não detectada acabava mantida;
+  - pausas com ruído de fundo continuavam no vídeo.

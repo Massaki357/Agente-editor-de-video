@@ -118,6 +118,12 @@ class Timeline(_Modelo):
         self._timeline_mudou()
         return clip
 
+    def substituir_trechos(self, indice: int, trechos: list[Trecho]) -> None:
+        """Troca os trechos mantidos de um clipe (validando) e recalcula a timeline."""
+        clip = self.clipes[indice]
+        self.clipes[indice] = Clip.model_validate({**clip.model_dump(), "trechos": trechos})
+        self._timeline_mudou()
+
     def adicionar_clipe(self, clip: Clip) -> None:
         self.clipes.append(clip)
         self._timeline_mudou()
