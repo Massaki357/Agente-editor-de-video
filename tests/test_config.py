@@ -1,0 +1,70 @@
+from pathlib import Path
+
+import pytest
+
+from src.config import _ENV_FIELDS, PROJECT_ROOT, load_settings
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    for env in _ENV_FIELDS:
+        monkeypatch.delenv(env, raising=False)
+    return monkeypatch
+
+
+def test_defaults_without_env_file(clean_env, tmp_path):
+    s = load_settings(tmp_path / "nao_existe.env")
+    assert s.llm_model == "openai:gpt-5-mini"
+    assert s.whisper_device == "auto"
+    assert s.openai_api_key is None
+    assert s.cache_dir == PROJECT_ROOT / ".cache"
+    assert (s.output_width, s.output_height, s.output_fps) == (1080, 1920, 30)
+
+
+def test_reads_env_file_with_inline_comments(clean_env, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text(
+        "LLM_MODEL=anthropic:claude-haiku-4-5   # comentario\n"
+        "ANTHROPIC_API_KEY=sk-test\n"
+        "OPENAI_API_KEY=                # vazia\n"
+        "WHISPER_DEVICE=CPU\n"
+        "CACHE_DIR=meu_cache\n",
+        encoding="utf-8",
+    )
+    s = load_settings(env)
+    assert s.llm_model == "anthropic:claude-haiku-4-5"
+    assert s.llm_provider == "anthropic"
+    assert s.api_key_for_provider("anthropic").get_secret_value() == "sk-test"
+    assert s.openai_api_key is None
+    assert s.whisper_device == "cpu"
+    assert s.cache_dir == PROJECT_ROOT / "meu_cache"
+
+
+def test_env_example_parses_to_empty_keys(clean_env):
+    s = load_settings(PROJECT_ROOT / ".env.example")
+    assert s.anthropic_api_key is None
+    assert s.pexels_api_key is None
+    assert s.whisper_model == "large-v3-turbo"
+
+
+def test_process_env_overrides_env_file(clean_env, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("WHISPER_MODEL=small\n", encoding="utf-8")
+    clean_env.setenv("WHISPER_MODEL", "medium")
+    assert load_settings(env).whisper_model == "medium"
+
+
+def test_invalid_whisper_device_is_rejected(clean_env, tmp_path):
+    clean_env.setenv("WHISPER_DEVICE", "tpu")
+    with pytest.raises(ValueError):
+        load_settings(tmp_path / "x.env")
+
+
+def test_absolute_cache_dir_is_kept(clean_env, tmp_path):
+    clean_env.setenv("CACHE_DIR", str(tmp_path))
+    assert load_settings(tmp_path / "x.env").cache_dir == Path(tmp_path)
+
+
+def test_secret_is_not_leaked_in_repr(clean_env, tmp_path):
+    clean_env.setenv("OPENAI_API_KEY", "sk-super-secreta")
+    assert "sk-super-secreta" not in repr(load_settings(tmp_path / "x.env"))

@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.cache/
+logs/
+output/
+samples/*
+!samples/.gitkeep
+.claude/settings.local.json
+.claude/.tests_dirty
