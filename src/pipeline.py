@@ -3,8 +3,8 @@
     python -m src.pipeline samples/ -o output/final.mp4
     python -m src.pipeline 2.mp4 1.mp4 -o output/final.mp4   # ordem dada
 
-Etapa 3: clipes → transcrição → cortes de silêncio → render. As próximas etapas
-entram aqui como passos adicionais.
+Etapas 3-4: clipes → transcrição → cortes de silêncio e de erros de fala (LLM) →
+render. As próximas etapas entram aqui como passos adicionais.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ def run(
     output: Path,
     *,
     cortes: bool = True,
+    cortes_fala: bool = True,
     params: CutParams | None = None,
 ) -> Project:
     from src.render import render_timeline
@@ -47,7 +48,9 @@ def run(
 
     if cortes:
         t0 = time.perf_counter()
-        apply_cuts(project, params or CutParams(fps=get_settings().output_fps))
+        apply_cuts(
+            project, params or CutParams(fps=get_settings().output_fps), cortes_fala=cortes_fala
+        )
         etapas["transcrição + cortes"] = time.perf_counter() - t0
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m src.pipeline", description=__doc__)
     parser.add_argument("entradas", nargs="+", type=Path, help="pasta ou arquivos de vídeo")
     parser.add_argument("-o", "--output", type=Path, required=True)
-    parser.add_argument("--sem-cortes", action="store_true", help="não corta silêncios")
+    parser.add_argument("--sem-cortes", action="store_true", help="não corta nada")
+    parser.add_argument(
+        "--sem-llm", action="store_true", help="não usa o LLM para cortar erros de fala"
+    )
     parser.add_argument("--min-silencio", type=float, default=CutParams().min_silencio)
     parser.add_argument("--margem", type=float, default=CutParams().margem)
     parser.add_argument("--ruido-db", type=float, default=CutParams().ruido_db)
@@ -94,7 +100,13 @@ def main(argv: list[str] | None = None) -> int:
         ruido_db=args.ruido_db,
         fps=get_settings().output_fps,
     )
-    run(args.entradas, args.output, cortes=not args.sem_cortes, params=params)
+    run(
+        args.entradas,
+        args.output,
+        cortes=not args.sem_cortes,
+        cortes_fala=not args.sem_llm,
+        params=params,
+    )
     return 0
 
 

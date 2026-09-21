@@ -42,6 +42,7 @@ A pasta `samples/` não vai para o GitHub (está no `.gitignore`), então pode u
 | T1 | 2 | Teste de integração `tests/test_transcribe_integration.py`: Whisper real em `samples/1.mp4`, tempos das palavras em ordem, e a 2ª execução usando o cache em menos de 1 s (`uv run pytest -m integration`) | `samples/1.mp4` | ⏳ |
 | T2 | 2 | Transcrever `samples/2.mp4` e conferir se as hesitações ("é...", "hm", "né") e as repetições aparecem na transcrição, sem terem sido "limpas" pelo Whisper | `samples/2.mp4` | ⏳ |
 | T4 | 3 | `tests/test_pipeline_integration.py`: pipeline completo (transcrição, cortes e render) em `samples/1.mp4` + `samples/2.mp4`. Confere 30 fps, duração menor que a original e nenhuma pausa maior que ~0,66 s no resultado. Salva o vídeo em `output/etapa3_samples.mp4` para a checagem C2 | `samples/1.mp4`, `samples/2.mp4` | ⏳ |
+| T5 | 4 | `tests/test_llm_integration.py`: LLM real (gpt-5-mini) em `samples/2.mp4`. Confere que ele marca pelo menos um erro de fala, que remove no máximo 30% do clipe, e mostra o que foi marcado | `samples/2.mp4` + `OPENAI_API_KEY` (já configurada) | ⏳ |
 | T3 | 1 | Ler `samples/4.mp4` com o ffprobe e confirmar que a resolução sai em pé (largura menor que a altura) | `samples/4.mp4` (opcional) | ⏳ |
 
 ## 3. Checagens que só você pode fazer
@@ -53,6 +54,8 @@ Eu preparo tudo e deixo aqui os tempos exatos para você conferir no player (VLC
 | C1 | 2 | Os timestamps das palavras batem com o áudio em 3 pontos (começo, meio e fim) | Depois do T1, eu escrevo aqui 3 palavras de `samples/1.mp4` com o tempo de cada uma. Você abre o vídeo, pula para cada tempo e confirma se a palavra é dita ali (tolerância de cerca de 0,3 s) | ⏳ |
 | C2a | 3 | **Já dá para fazer agora:** ouça `output/etapa3_voz_sintetica.mp4` (resultado dos cortes em 2 clipes de voz sintética; os originais são `output/etapa3_original_1.mp4` e `_2.mp4`). Confira se nenhuma palavra foi cortada, sem estalos nas emendas em 1,5 / 5,6 / 7,1 / 7,9 / 10,1 / 12,8 s e com o fim de "simples." (~6,6 s) inteiro | Nada: os arquivos já estão em `output/` | 👀 |
 | C2 | 3 | O vídeo cortado não tem pausas longas, **não corta o começo nem o fim das palavras** e **não tem estalos ("clicks") nas emendas** | Depois do T4, assista `output/etapa3_samples.mp4` com fone de ouvido. Se alguma palavra parecer cortada, me diga o segundo aproximado: dá para aumentar a margem (`--margem 0.12`) ou mudar o limiar (`--ruido-db -40`) | ⏳ |
+| C3a | 4 | **Já dá para fazer agora:** compare `output/etapa4_original_erros.mp4` (voz sintética com falso começo, "o o o", take errado com "errei, vou de novo" e hesitações) com `output/etapa4_resultado.mp4`. Confira se os cortes soam naturais e se nada importante sumiu | Nada: os arquivos já estão em `output/` | 👀 |
+| C3 | 4 | Com a sua voz: rode `uv run python -m src.pipeline samples/2.mp4 -o output/etapa4_samples.mp4` (ou me peça) e confira se o LLM removeu os erros que você gravou de propósito e **nada além disso**. Atenção à repetição "o o o": o Whisper às vezes junta tudo num "o" só antes de o LLM ver. Também preste atenção às emendas no meio da fala, sem pausa: palavras de uma vogal só coladas à vizinha (ex.: o "é" em "problema é que") podem deixar um restinho de som | `samples/2.mp4` | ⏳ |
 
 ---
 
@@ -62,3 +65,7 @@ Eu preparo tudo e deixo aqui os tempos exatos para você conferir no player (VLC
   - o fim das palavras era cortado;
   - uma pausa não detectada acabava mantida;
   - pausas com ruído de fundo continuavam no vídeo.
+- Etapa 4: validada com o LLM real (gpt-5-mini) num clipe de voz sintética com erros de propósito. Ele marcou o falso começo ("Hoje eu vou,"), o take errado inteiro ("...100 graus, não, peraí, errei, vou de novo.") e a hesitação ("É, hm,"). Custo da chamada: cerca de 1,2 mil tokens de entrada e 1,6 mil de saída, em 16 s. Duas limitações observadas:
+  - O Whisper transcreveu "o o o problema" como "Oh, o problema": juntou a repetição antes de o LLM vê-la, e sobrou um "oh".
+  - **Limitação aceita:** cortar uma palavra solta no meio da fala contínua, sem pausa ao redor. As bordas desses cortes vão para o silêncio real entre as palavras e, na dúvida, preservam a palavra mantida. Numa varredura removendo 34 palavras da voz sintética, uma de cada vez: 11 limpas, 15 com resto da palavra removida e 6 com a vizinha possivelmente afetada (a maioria parece erro da retranscrição usada para medir). Os cortes reais do LLM, que caem em fronteiras de frase, saíram limpos. Se a sua voz real mostrar problema (C3), a alternativa é um alinhador por fonemas (wav2vec2, ~1 GB, PyTorch).
+  - O Whisper "ouviu" um "tchau, tchau" no silêncio do fim. Isso é alucinação dele, e o corte de silêncio remove esse trecho de qualquer forma.

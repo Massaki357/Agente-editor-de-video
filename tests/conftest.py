@@ -17,6 +17,25 @@ def isolated_cache(tmp_path_factory, monkeypatch):
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def no_real_llm(request, monkeypatch):
+    """Nenhum teste chama a API do LLM por acidente (custo, rede, resultado instável).
+
+    Os testes do próprio client mockam a fábrica do modelo; os de integração
+    (`-m integration`) podem chamar o LLM de verdade.
+    """
+    if request.node.path.name == "test_llm_client.py" or request.node.get_closest_marker(
+        "integration"
+    ):
+        return
+    from src.llm import client
+
+    def blocked(*args, **kwargs):
+        raise client.LLMError("LLM desativado nos testes unitários")
+
+    monkeypatch.setattr(client, "run_structured", blocked)
+
+
 requires_ffmpeg = pytest.mark.skipif(
     not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="FFmpeg não está no PATH"
 )

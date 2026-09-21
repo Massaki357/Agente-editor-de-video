@@ -41,7 +41,7 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra"
+addopts = "-ra -m 'not integration'"
 markers = ["integration: usa vídeos reais em samples/, GPU ou rede (lento)"]
 
 [tool.ruff]
