@@ -341,6 +341,10 @@ Editor de Videos/
 - Fila de jobs para renderizar vários projetos em sequência *(a fila da API já processa jobs de vários projetos em sequência desde a Etapa 5b; falta expor a fila na interface)*.
 - Logs por execução (tempo de cada etapa, tokens usados e custo estimado do LLM).
 - Cancelamento e progresso mais finos nos jobs `rosto` e `transcrever` (hoje só entre clipes).
+- Riscos anotados na Etapa 6 (reenquadramento):
+  - Fontes com fps variável (VFR) ou `start_time` de vídeo diferente de 0: o caminho da câmera pode ficar alguns frames defasado. A sincronia A/V não é afetada.
+  - Arquivos 4K muito grandes: cada trecho decodifica o áudio desde o início (`atrim`) e manda o quadro inteiro pelo pipe. Se ficar lento, faça uma pré-rolagem de `-ss` e reduza o quadro no FFmpeg antes do pipe.
+  - Fontes HDR (HLG/PQ): não há tonemapping.
 - Testes de integração com 2 clipes curtos em `samples/`.
 - `README.md` com instalação, `.env` e uso.
 - Empacotamento opcional: a API servindo o build do frontend (`frontend/dist`) para rodar tudo com um comando.
@@ -359,7 +363,7 @@ Editor de Videos/
 - [x] Etapa 4: Camada LLM e cortes de erros de fala
 - [x] Etapa 5: Rastreio de rosto
 - [x] Etapa 5b: API (FastAPI) e frontend funcional
-- [ ] Etapa 6: Reenquadramento vertical
+- [x] Etapa 6: Reenquadramento vertical
 - [ ] Etapa 7: Legendas
 - [ ] Etapa 8: Imagens
 - [ ] Etapa 9: Zooms

@@ -1,4 +1,4 @@
-"""Render da timeline: um intermediário por trecho + concatenação (Etapa 3).
+"""Render da timeline: um intermediário por trecho + concatenação (Etapas 3 e 6).
 
 Desenho (pensado para sincronia A/V e memória constante):
 
@@ -7,13 +7,25 @@ Desenho (pensado para sincronia A/V e memória constante):
    `N = round((b - a) * fps)` frames de vídeo e `N / fps` s de áudio PCM. Como
    vídeo e áudio de cada trecho têm a mesma duração exata, a soma também tem, e a
    sincronia não deriva ao longo das emendas. O áudio recebe fade de entrada e de
-   saída (~25 ms) para não estalar na emenda. Na Etapa 6 esta função é trocada
-   pela passada OpenCV (crop dinâmico) sem mexer no resto.
+   saída (~25 ms) para não estalar na emenda.
+   - Sem `cameras`: o FFmpeg redimensiona o quadro inteiro (letterbox).
+   - Com `cameras` (Etapa 6, `_render_segment_reframe`): o FFmpeg decodifica o
+     trecho já na grade de fps, o **OpenCV** recorta a janela 9:16 que segue o rosto
+     (`src.reframe.CameraPath`), redimensiona para 1080x1920 e envia os frames por
+     pipe a um segundo FFmpeg, que os junta ao áudio original do trecho.
 2. **Concatenação** (`_concat`): concat demuxer, vídeo copiado e áudio codificado
    em AAC uma única vez (codificar AAC por trecho criaria gaps de priming).
 3. **Passada 2** (`_second_pass`): ponto de extensão para legendas `.ass` e
    overlays (Etapas 7 e 8), aplicados sobre o vídeo concatenado, já em tempo do
    vídeo final. Hoje é um no-op.
+
+Relação com o etapas.md: a "passada 1 (OpenCV)" é o recorte por trecho; o "juntar
+com o áudio original + fades" acontece no encoder de cada trecho (assim áudio e
+vídeo de cada trecho têm exatamente N/fps s e a sincronia não deriva); a
+"passada 2 (FFmpeg)" é a concatenação + `_second_pass`.
+
+Cor: com reenquadramento, a origem é decodificada com a matriz dela
+(`_source_matrix`) e a saída é gravada em BT.709 com as marcações.
 
 Tempos: `trechos` estão no tempo original do clipe (t_src); o arquivo de saída
 está no tempo do vídeo final (t_out), em que o trecho k começa na soma das
@@ -23,6 +35,7 @@ durações (em frames inteiros) dos trechos anteriores.
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 import os
 import shutil
@@ -30,13 +43,17 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from src.project import ClipMeta, Project, Timeline
+from src.reframe import CameraPath
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +112,12 @@ def render_timeline(
     workers: int | None = None,
     work_dir: Path | None = None,
     progress: Progress | None = None,
+    cameras: Mapping[int, CameraPath] | None = None,
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
+
+    `cameras` (índice do clipe → caminho da janela 9:16) liga o reenquadramento:
+    cada trecho é recortado pelo OpenCV e redimensionado para `size`.
 
     `size=None` usa o tamanho de exibição do primeiro clipe (arredondado para par).
     `work_dir` guarda os intermediários (útil para depuração); sem ele, usa uma
@@ -122,7 +143,9 @@ def render_timeline(
     with _work_directory(work_dir) as tmp:
         seg_dir = tmp / "segmentos"
         seg_dir.mkdir(parents=True, exist_ok=True)
-        seg_files = _render_segments(segments, seg_dir, settings, workers, progress, total)
+        seg_files = _render_segments(
+            segments, seg_dir, settings, workers, progress, total, cameras or {}
+        )
 
         concatenated = _concat(seg_files, segments, tmp / "concat.mp4", settings)
         final = _second_pass(concatenated, output, timeline, settings)
@@ -182,14 +205,19 @@ def _render_segments(
     workers: int,
     progress: Progress | None,
     total: int,
+    cameras: Mapping[int, CameraPath],
 ) -> list[Path]:
     files = [seg_dir / f"seg_{s.indice:04d}{SEGMENT_EXT}" for s in segments]
     done = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = {
-            pool.submit(_render_segment, seg, dest, settings): seg
-            for seg, dest in zip(segments, files, strict=True)
-        }
+        futures = {}
+        for seg, dest in zip(segments, files, strict=True):
+            camera = cameras.get(seg.clip_index)
+            if camera is not None:
+                fut = pool.submit(_render_segment_reframe, seg, dest, settings, camera)
+            else:
+                fut = pool.submit(_render_segment, seg, dest, settings)
+            futures[fut] = seg
         try:
             for fut in as_completed(futures):
                 fut.result()
@@ -206,37 +234,22 @@ def _render_segments(
 def _render_segment(seg: Segment, dest: Path, settings: RenderSettings) -> Path:
     """Gera o intermediário de um trecho: N frames de vídeo + N/fps s de PCM estéreo.
 
-    Seek de entrada (`-ss` antes de `-i`) é rápido e, como há re-encode, preciso.
-    Ponto de troca da Etapa 6: gerar o vídeo via OpenCV (crop 9:16) mantendo o
-    mesmo contrato (mesmo número de frames, mesmo áudio).
+    Vídeo: seek de entrada (`-ss` antes de `-i`) é rápido e, como há re-encode,
+    preciso ao frame. Áudio: segunda entrada sem seek, cortada com `atrim` (ver
+    `_audio_args`). Quadro inteiro redimensionado com letterbox (sem reenquadrar).
     """
     w, h, fps, sr = settings.width, settings.height, settings.fps, settings.sample_rate
-    duration = seg.frames / fps
-    fade = max(0.0, min(settings.fade, duration / 2))
-
     vf = (
         f"fps={fps},"
         f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
         f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     )
-    af = [f"aresample={sr}", "aformat=sample_fmts=s16:channel_layouts=stereo"]
-    if fade > 0:
-        af += [
-            f"afade=t=in:st=0:d={fade:.6f}",
-            f"afade=t=out:st={duration - fade:.6f}:d={fade:.6f}",
-        ]
-    af.append("apad")
-
-    cmd = [*FFMPEG_BASE, "-ss", f"{seg.inicio:.6f}", "-i", str(seg.arquivo)]
-    if seg.tem_audio:
-        audio_map = "0:a:0"
-    else:
-        cmd += ["-f", "lavfi", "-i", f"anullsrc=r={sr}:cl=stereo"]
-        audio_map = "1:a:0"
+    entradas, audio_map, af = _audio_args(seg, settings, 1)
+    cmd = [*FFMPEG_BASE, "-ss", f"{seg.inicio:.6f}", "-i", str(seg.arquivo), *entradas]
     cmd += [
         "-map", "0:v:0", "-map", audio_map,
-        "-vf", vf, "-af", ",".join(af),
-        "-frames:v", str(seg.frames), "-t", f"{duration:.6f}",
+        "-vf", vf, "-af", af,
+        "-frames:v", str(seg.frames), "-t", f"{seg.frames / fps:.6f}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
         "-r", str(fps),
         "-c:a", "pcm_s16le", "-ar", str(sr), "-ac", "2",
@@ -244,6 +257,134 @@ def _render_segment(seg: Segment, dest: Path, settings: RenderSettings) -> Path:
         str(dest),
     ]  # fmt: skip
     _run_ffmpeg(cmd, f"trecho {seg.indice} ({seg.arquivo.name} [{seg.inicio:.3f}, {seg.fim:.3f}])")
+    return dest
+
+
+@functools.lru_cache(maxsize=256)
+def _source_matrix(path: Path, altura: int) -> str:
+    """Matriz YUV→RGB da origem: a marcada no arquivo ou, sem marcação, a que os
+    players assumem (BT.709 para HD, BT.601 para SD)."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0"]
+            + ["-show_entries", "stream=color_space", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    conhecidas = {"bt709": "bt709", "bt470bg": "bt601", "smpte170m": "bt601", "fcc": "fcc"}
+    conhecidas |= {"bt2020nc": "bt2020", "bt2020c": "bt2020", "smpte240m": "smpte240m"}
+    if out in conhecidas:
+        return conhecidas[out]
+    return "bt709" if altura >= 720 else "bt601"
+
+
+def _audio_args(seg: Segment, settings: RenderSettings, input_index: int) -> tuple[list, str, str]:
+    """Entradas extras, mapa e filtro do áudio do trecho (fades nas emendas).
+
+    O áudio NÃO usa seek de entrada (`-ss` antes de `-i`): nele o AAC sai 13–40 ms
+    adiantado (as amostras de "priming" não são descartadas). O corte é feito com
+    `atrim` depois de decodificar, que é exato (medido: erro < 0,1 ms).
+    """
+    fps, sr = settings.fps, settings.sample_rate
+    duration = seg.frames / fps
+    fade = max(0.0, min(settings.fade, duration / 2))
+    af = [f"aresample={sr}", "aformat=sample_fmts=s16:channel_layouts=stereo"]
+    if seg.tem_audio:
+        af = [f"atrim=start={seg.inicio:.6f}", "asetpts=PTS-STARTPTS", *af]
+    if fade > 0:
+        af += [
+            f"afade=t=in:st=0:d={fade:.6f}",
+            f"afade=t=out:st={duration - fade:.6f}:d={fade:.6f}",
+        ]
+    af.append("apad")
+    if seg.tem_audio:
+        entradas = ["-i", str(seg.arquivo)]
+    else:
+        entradas = ["-f", "lavfi", "-i", f"anullsrc=r={sr}:cl=stereo"]
+    return entradas, f"{input_index}:a:0", ",".join(af)
+
+
+def _render_segment_reframe(
+    seg: Segment, dest: Path, settings: RenderSettings, camera: CameraPath
+) -> Path:
+    """Passada 1 com reenquadramento: FFmpeg decodifica → OpenCV recorta → FFmpeg codifica.
+
+    O decodificador entrega exatamente os frames da grade de fps do trecho (mesmo
+    seek preciso do caminho sem reenquadramento); cada frame k corresponde a
+    t_src = inicio + k/fps, e a janela vem de `camera.window(t_src)`. O resultado
+    tem o mesmo contrato de `_render_segment`: N frames + N/fps s de PCM.
+    """
+    ow, oh, fps = settings.width, settings.height, settings.fps
+    sw, sh = camera.largura, camera.altura
+    n = seg.frames
+    frame_bytes = sw * sh * 3
+
+    dec_cmd = [*FFMPEG_BASE, "-ss", f"{seg.inicio:.6f}", "-i", str(seg.arquivo)]
+    matriz = _source_matrix(seg.arquivo, sh)
+    vf_dec = f"fps={fps},scale={sw}:{sh}:in_color_matrix={matriz}"
+    dec_cmd += ["-map", "0:v:0", "-vf", vf_dec, "-frames:v", str(n)]
+    dec_cmd += ["-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+
+    entradas, audio_map, af = _audio_args(seg, settings, 1)
+    enc_cmd = [*FFMPEG_BASE, "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{ow}x{oh}"]
+    enc_cmd += ["-r", str(fps), "-i", "-", *entradas]
+    enc_cmd += [
+        "-map", "0:v:0", "-map", audio_map, "-af", af,
+        "-frames:v", str(n), "-t", f"{n / fps:.6f}",
+        # saída HD: BT.709 limitado, com as marcações (sem elas o player adivinha errado)
+        "-vf",
+        "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+        # marca os frames: as opções -color_* abaixo sozinhas não chegam ao bitstream
+        "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv",
+        "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+        "-color_range", "tv",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+        "-r", str(fps), "-c:a", "pcm_s16le", "-ar", str(settings.sample_rate), "-ac", "2",
+        str(dest),
+    ]  # fmt: skip
+
+    what = f"trecho {seg.indice} ({seg.arquivo.name} [{seg.inicio:.3f}, {seg.fim:.3f}])"
+    with tempfile.TemporaryFile() as dec_err, tempfile.TemporaryFile() as enc_err:
+        try:
+            dec = subprocess.Popen(dec_cmd, stdout=subprocess.PIPE, stderr=dec_err)
+            enc = subprocess.Popen(enc_cmd, stdin=subprocess.PIPE, stderr=enc_err)
+        except FileNotFoundError as exc:
+            raise RenderError("ffmpeg não encontrado no PATH") from exc
+        assert dec.stdout is not None and enc.stdin is not None
+        ultimo: np.ndarray | None = None
+        try:
+            for k in range(n):
+                buf = dec.stdout.read(frame_bytes)
+                if len(buf) == frame_bytes:
+                    ultimo = np.frombuffer(buf, np.uint8).reshape(sh, sw, 3)
+                elif ultimo is None:
+                    raise RenderError(f"nenhum frame decodificado em {what}")
+                # (fim do arquivo antes do fim do trecho: repete o último frame)
+                x, y, cw, ch = camera.window(seg.inicio + k / fps)
+                recorte = ultimo[y : y + ch, x : x + cw]
+                # ampliar com bicúbica (+5 dB PSNR que a linear, ~0,5 ms/frame a mais)
+                interp = cv2.INTER_AREA if cw > ow else cv2.INTER_CUBIC
+                enc.stdin.write(cv2.resize(recorte, (ow, oh), interpolation=interp).tobytes())
+            enc.stdin.close()
+        except BrokenPipeError:
+            pass  # o encoder morreu; o erro dele é relatado abaixo
+        except BaseException:
+            for proc in (dec, enc):
+                proc.kill()
+            raise
+        finally:
+            dec.stdout.close()
+        dec.kill()  # já leu o que precisava; pode haver frames sobrando
+        dec.wait()
+        if enc.wait() != 0:
+            enc_err.seek(0)
+            tail = enc_err.read().decode("utf-8", "replace").strip().splitlines()
+            raise RenderError(
+                f"FFmpeg falhou ao codificar {what}:\n" + "\n".join(tail[-STDERR_TAIL_LINES:])
+            )
     return dest
 
 

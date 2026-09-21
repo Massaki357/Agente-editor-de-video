@@ -8,6 +8,7 @@ const BASE = '/api'
 export interface PipelineOptions {
   cortes: boolean
   cortes_fala: boolean
+  reenquadrar: boolean
   min_silencio: number
   margem: number
   ruido_db: number

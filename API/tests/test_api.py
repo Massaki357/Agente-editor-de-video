@@ -217,6 +217,12 @@ def test_generate_job_cuts_and_renders(client, tmp_path, monkeypatch):
     assert "final.mp4" in projeto["arquivos"]
     video = client.get(f"/api/projects/{pid}/files/final.mp4")
     assert video.status_code == 200 and len(video.content) > 1000
+    from src.clips import probe_clip
+
+    final = get_settings().data_dir / "projects" / pid / "saida" / "final.mp4"
+    meta = probe_clip(final)
+    assert (meta.largura, meta.altura, meta.fps) == (1080, 1920, 30)  # Etapa 6: 9:16
+    assert "rosto" in job["resultado"]["tempos"]
 
 
 def test_generate_without_cuts_keeps_whole_clip(client, tmp_path, monkeypatch):
@@ -224,11 +230,16 @@ def test_generate_without_cuts_keeps_whole_clip(client, tmp_path, monkeypatch):
     pid = novo_projeto(client)
     client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
     r = client.post(
-        f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": {"cortes": False}}
+        f"/api/projects/{pid}/jobs",
+        json={"tipo": "gerar", "opcoes": {"cortes": False, "reenquadrar": False}},
     )
     job = esperar(client, r.json()["id"])
     assert job["status"] == "concluido", job
     assert job["resultado"]["duracao_final"] == pytest.approx(4.0, abs=0.05)
+    from src.clips import probe_clip
+
+    final = get_settings().data_dir / "projects" / pid / "saida" / "final.mp4"
+    assert (probe_clip(final).largura, probe_clip(final).altura) == (320, 180)  # quadro original
 
 
 def test_running_job_blocks_changes_and_can_be_cancelled(client, video_dir, monkeypatch):

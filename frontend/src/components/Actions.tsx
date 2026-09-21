@@ -8,7 +8,14 @@ interface Props {
   onRodar: (tipo: JobTipo, opcoes?: PipelineOptions) => void
 }
 
-const FALLBACK: PipelineOptions = { cortes: true, cortes_fala: true, min_silencio: 0.4, margem: 0.08, ruido_db: -35 }
+const FALLBACK: PipelineOptions = {
+  cortes: true,
+  cortes_fala: true,
+  reenquadrar: true,
+  min_silencio: 0.4,
+  margem: 0.08,
+  ruido_db: -35,
+}
 
 export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props) {
   // o pai recria o componente (key) quando os padrões chegam de GET /config
@@ -43,6 +50,14 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
             onChange={(e) => setOp({ ...op, cortes_fala: e.target.checked })}
           />
           cortar erros de fala com LLM (gasta tokens)
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={op.reenquadrar}
+            onChange={(e) => setOp({ ...op, reenquadrar: e.target.checked })}
+          />
+          vertical 9:16 (1080x1920) seguindo o rosto
         </label>
         <label>
           silêncio mínimo (s)

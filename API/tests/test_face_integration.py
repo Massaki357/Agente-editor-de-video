@@ -29,3 +29,16 @@ def test_t6_real_face_tracking_and_debug_video():
 
     out = OUTPUT_DIR / "etapa5_debug_samples3.mp4"
     render_debug(clip, out, track, FaceParams().passo)
+
+
+def test_t7_real_clip_reframed_to_9_16():
+    from src.clips import probe_clip
+    from src.pipeline import PipelineOptions, build_project, render_project
+
+    clip = SAMPLES_DIR / "3.mp4"
+    if not clip.exists():
+        pytest.skip("falta samples/3.mp4 (veja testes-pendentes.md)")
+    out = OUTPUT_DIR / "etapa6_samples3_9x16.mp4"
+    render_project(build_project([clip]), out, PipelineOptions(cortes_fala=False))
+    meta = probe_clip(out)
+    assert (meta.largura, meta.altura, meta.fps) == (1080, 1920, 30)

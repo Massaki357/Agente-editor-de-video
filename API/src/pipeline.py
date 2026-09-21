@@ -6,7 +6,7 @@ Usado pela API (`src.api`) e pela linha de comando:
     python -m src.pipeline 2.mp4 1.mp4 -o ../output/final.mp4   # ordem dada
 
 As próximas etapas (reenquadramento, legendas, imagens, zooms) entram em
-`render_project` como passos adicionais.
+`render_project` como passos adicionais. Etapa 6: reenquadramento 9:16 seguindo o rosto.
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ from pydantic import BaseModel
 from src.clips import project_from_files, project_from_folder
 from src.config import get_settings
 from src.cuts import CutParams, TimeMap, apply_cuts
+from src.face import track_faces
 from src.project import Project
+from src.reframe import CameraPath, camera_path
 from src.transcribe import transcribe_clip
 
 log = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ StepCallback = Callable[[str, float], None]
 class PipelineOptions(BaseModel):
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
+    reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
@@ -117,14 +120,24 @@ def render_project(
     on_step("cortes", 1.0)
     tempos["transcrição + cortes"] = time.perf_counter() - t0
 
+    cameras: dict[int, CameraPath] | None = None
+    size = None
+    if options.reenquadrar:
+        t0 = time.perf_counter()
+        cameras = reframe_cameras(project, on_step)
+        size = (settings.output_width, settings.output_height)
+        tempos["rosto"] = time.perf_counter() - t0
+
     t0 = time.perf_counter()
     output.parent.mkdir(parents=True, exist_ok=True)
     render_timeline(
         timeline,
         output,
+        size=size,
         fps=settings.output_fps,
         sample_rate=settings.output_sample_rate,
         progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
+        cameras=cameras,
     )
     tempos["render"] = time.perf_counter() - t0
 
@@ -146,12 +159,34 @@ def render_project(
     return result
 
 
+def reframe_cameras(project: Project, on_step: StepCallback = _noop) -> dict[int, CameraPath]:
+    """Caminho da janela 9:16 de cada clipe que tem trechos (rastreio em cache)."""
+    from src.clips import probe_clip
+
+    clipes = project.timeline.clipes
+    cameras: dict[int, CameraPath] = {}
+    for i, clip in enumerate(clipes):
+        on_step("rosto", i / len(clipes))
+        if not clip.trechos:
+            continue
+        meta = clip.meta or probe_clip(clip.arquivo)
+        try:
+            track = track_faces(Path(clip.arquivo))
+        except Exception as exc:  # sem rosto não é motivo para não gerar o vídeo
+            log.warning("%s: rastreio de rosto falhou (%s); janela centralizada.", clip.nome, exc)
+            track = None
+        cameras[i] = camera_path(track, meta.largura, meta.altura)
+    on_step("rosto", 1.0)
+    return cameras
+
+
 def run(
     entradas: list[Path],
     output: Path,
     *,
     cortes: bool = True,
     cortes_fala: bool = True,
+    reenquadrar: bool = True,
     params: CutParams | None = None,
 ) -> Project:
     """Linha de comando: monta o projeto das entradas, processa e salva o project.json."""
@@ -162,6 +197,7 @@ def run(
     options = PipelineOptions(
         cortes=cortes,
         cortes_fala=cortes_fala,
+        reenquadrar=reenquadrar,
         min_silencio=params.min_silencio,
         margem=params.margem,
         ruido_db=params.ruido_db,
@@ -181,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sem-llm", action="store_true", help="não usa o LLM para cortar erros de fala"
     )
+    parser.add_argument(
+        "--sem-reenquadrar", action="store_true", help="mantém o quadro original (sem 9:16)"
+    )
     parser.add_argument("--min-silencio", type=float, default=CutParams().min_silencio)
     parser.add_argument("--margem", type=float, default=CutParams().margem)
     parser.add_argument("--ruido-db", type=float, default=CutParams().ruido_db)
@@ -198,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         args.output,
         cortes=not args.sem_cortes,
         cortes_fala=not args.sem_llm,
+        reenquadrar=not args.sem_reenquadrar,
         params=params,
     )
     return 0

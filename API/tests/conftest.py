@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import get_settings
+from src.config import PROJECT_ROOT, get_settings
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +13,16 @@ def isolated_cache(tmp_path_factory, monkeypatch):
     cache_dir = tmp_path_factory.mktemp("cache")
     monkeypatch.setenv("CACHE_DIR", str(cache_dir))
     monkeypatch.setenv("DATA_DIR", str(tmp_path_factory.mktemp("data")))
+    # modelo de rosto já baixado: copia para o cache isolado (sem rede nos testes)
+    for origem in (
+        PROJECT_ROOT / ".cache" / "models" / "blaze_face_short_range.tflite",
+        PROJECT_ROOT / ".cache" / "test-assets" / "blaze_face_short_range.tflite",
+    ):
+        if origem.exists():
+            destino = cache_dir / "models" / origem.name
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(origem, destino)
+            break
     get_settings.cache_clear()
     yield cache_dir
     get_settings.cache_clear()
