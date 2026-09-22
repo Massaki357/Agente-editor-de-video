@@ -57,6 +57,10 @@ class ProjectStore:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def plan_path(self, pid: str) -> Path:
+        """Plano de imagens (preview) do projeto."""
+        return self.dir(pid) / "plano_imagens.json"
+
     def lock(self, pid: str) -> threading.RLock:
         with self._guard:
             return self._locks.setdefault(pid, threading.RLock())

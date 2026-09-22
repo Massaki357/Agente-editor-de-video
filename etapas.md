@@ -365,7 +365,7 @@ Editor de Videos/
 - [x] Etapa 5b: API (FastAPI) e frontend funcional
 - [x] Etapa 6: Reenquadramento vertical
 - [x] Etapa 7: Legendas
-- [ ] Etapa 8: Imagens
+- [x] Etapa 8: Imagens
 - [ ] Etapa 9: Zooms
 - [ ] Etapa 10: Interface web (design)
 - [ ] Etapa 11: Polimento

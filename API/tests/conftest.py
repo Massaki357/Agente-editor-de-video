@@ -47,6 +47,21 @@ def no_real_llm(request, monkeypatch):
     monkeypatch.setattr(client, "run_structured", blocked)
 
 
+@pytest.fixture(autouse=True)
+def no_real_image_search(request, monkeypatch):
+    """Nenhum teste unitário busca ou baixa fotos (Pexels/Pixabay) de verdade."""
+    if request.node.get_closest_marker("integration"):
+        return
+    from src import images
+
+    def bloqueado(*args, **kwargs):
+        raise images.requests.ConnectionError("rede desativada nos testes unitários")
+
+    monkeypatch.setattr(images, "_pexels", lambda *a, **k: [])
+    monkeypatch.setattr(images, "_pixabay", lambda *a, **k: [])
+    monkeypatch.setattr(images, "download", bloqueado)
+
+
 requires_ffmpeg = pytest.mark.skipif(
     not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="FFmpeg não está no PATH"
 )

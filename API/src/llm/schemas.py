@@ -24,3 +24,18 @@ class CortesFala(BaseModel):
     """Resposta do prompt `cortes_fala`: lista vazia quando não há nada a cortar."""
 
     cortes: list[CorteFala]
+
+
+class ImagemSugerida(BaseModel):
+    """Uma imagem para aparecer sobre a fala, ancorada numa palavra da transcrição."""
+
+    indice: int = Field(description="índice (global) da palavra que a imagem ilustra")
+    palavra: str = Field(description="a palavra desse índice, copiada da transcrição")
+    query: str = Field(description="busca em inglês para um banco de fotos (2 a 4 palavras)")
+    duracao: float = Field(description="segundos na tela, entre 1.2 e 3.0")
+
+
+class PlanoImagens(BaseModel):
+    """Resposta do prompt `plano_imagens`: lista vazia quando nada merece imagem."""
+
+    imagens: list[ImagemSugerida]

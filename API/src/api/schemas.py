@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.images import PlanoImagens
 from src.pipeline import PipelineOptions
 
 
@@ -27,9 +28,9 @@ class Reorder(BaseModel):
 
 
 class JobCreate(BaseModel):
-    tipo: Literal["transcrever", "rosto", "gerar"]
+    tipo: Literal["transcrever", "rosto", "imagens", "gerar"]
     opcoes: PipelineOptions | None = Field(
-        None, description="só para 'gerar': cortes, cortes_fala, min_silencio, margem, ruido_db"
+        None, description="para 'imagens' e 'gerar': cortes, legendas, imagens, estilo..."
     )
 
 
@@ -103,3 +104,16 @@ class ConfigOut(BaseModel):
     whisper_device: str
     saida: dict[str, int]
     opcoes_padrao: PipelineOptions
+
+
+class ImagemEdit(BaseModel):
+    """Mudança num item do plano de imagens (nenhuma delas chama o LLM)."""
+
+    escolhida: int | None = Field(None, ge=0, description="índice do candidato a usar")
+    ativa: bool | None = None
+    query: str | None = Field(None, min_length=2, max_length=80, description="nova busca")
+
+
+class PlanoOut(BaseModel):
+    valido: bool = Field(description="False se os trechos mudaram desde o plano")
+    plano: PlanoImagens

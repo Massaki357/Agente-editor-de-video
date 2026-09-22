@@ -22,12 +22,24 @@ export interface CaptionStyle {
   destaque_escala: number
 }
 
+/** Espelha `ImageParams` (API/src/images.py). */
+export interface ImageParams {
+  intervalo_min: number
+  duracao_min: number
+  duracao_max: number
+  antecedencia: number
+  candidatos: number
+}
+
 export interface PipelineOptions {
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean
   legendas: boolean
   estilo_legenda: CaptionStyle
+  imagens: boolean
+  sticker: boolean
+  parametros_imagens: ImageParams
   min_silencio: number
   margem: number
   ruido_db: number
@@ -107,7 +119,49 @@ export interface ConfigOut {
   opcoes_padrao: PipelineOptions
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'gerar'
+/** Espelha `Candidato` (API/src/images.py). */
+export interface Candidato {
+  fonte: 'pexels' | 'pixabay'
+  id: string
+  url: string
+  miniatura: string
+  autor: string
+  pagina: string
+}
+
+/** Espelha `ItemImagem` (API/src/images.py). Tempos em segundos do vídeo final. */
+export interface ItemImagem {
+  id: number
+  indice: number
+  clipe: number
+  palavra: string
+  query: string
+  inicio: number
+  duracao: number
+  candidatos: Candidato[]
+  escolhida: number
+  ativa: boolean
+}
+
+export interface PlanoImagens {
+  assinatura: string
+  itens: ItemImagem[]
+}
+
+/** Espelha `PlanoOut` (API/src/api/schemas.py). */
+export interface PlanoOut {
+  valido: boolean
+  plano: PlanoImagens
+}
+
+/** Espelha `ImagemEdit`: só os campos enviados mudam. */
+export interface ImagemEdit {
+  escolhida?: number
+  ativa?: boolean
+  query?: string
+}
+
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'gerar'
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
 
 export interface Job {
@@ -130,6 +184,7 @@ export interface Job {
 const NOMES_JOB: Record<string, string> = {
   transcrever: 'Transcrever',
   rosto: 'Rastrear rosto',
+  imagens: 'Sugerir imagens',
   gerar: 'Gerar vídeo',
 }
 
@@ -231,6 +286,9 @@ export const api = {
     request<TranscricaoOut>('GET', `/projects/${enc(id)}/clips/${indice}/transcricao`),
   rosto: (id: string, indice: number) =>
     request<RostoOut>('GET', `/projects/${enc(id)}/clips/${indice}/rosto`),
+  imagens: (id: string) => request<PlanoOut>('GET', `/projects/${enc(id)}/imagens`),
+  editImagem: (id: string, itemId: number, mudanca: ImagemEdit) =>
+    request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/${itemId}`, mudanca),
   fileUrl: (id: string, nome: string) => `${BASE}/projects/${enc(id)}/files/${enc(nome)}`,
 
   createJob: (id: string, tipo: JobTipo, opcoes?: PipelineOptions) =>

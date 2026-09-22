@@ -28,6 +28,15 @@ const FALLBACK: PipelineOptions = {
     pausa_quebra: 0.45,
     destaque_escala: 112,
   },
+  imagens: true,
+  sticker: false,
+  parametros_imagens: {
+    intervalo_min: 3.0,
+    duracao_min: 1.2,
+    duracao_max: 3.0,
+    antecedencia: 0.2,
+    candidatos: 5,
+  },
   min_silencio: 0.4,
   margem: 0.08,
   ruido_db: -35,
@@ -117,6 +126,16 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
           </div>
         )}
         <label>
+          <input type="checkbox" checked={op.imagens} onChange={(e) => setOp({ ...op, imagens: e.target.checked })} />
+          imagens sobre a fala (LLM + Pexels)
+        </label>
+        {op.imagens && (
+          <label>
+            <input type="checkbox" checked={op.sticker} onChange={(e) => setOp({ ...op, sticker: e.target.checked })} />
+            sticker (sem fundo)
+          </label>
+        )}
+        <label>
           silêncio mínimo (s)
           <input type="number" step="0.05" min="0" value={op.min_silencio} onChange={num('min_silencio')} />
         </label>
@@ -131,6 +150,9 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
         <div className="linha">
           <button className="primario" onClick={() => onRodar('gerar', op)}>
             Gerar vídeo
+          </button>
+          <button onClick={() => onRodar('imagens', op)} title="aplica os cortes e monta o plano de imagens, sem render">
+            Sugerir imagens (preview)
           </button>
           {padrao && (
             <button className="link" onClick={() => setOp(padrao)}>

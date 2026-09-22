@@ -6,7 +6,7 @@ Usado pela API (`src.api`) e pela linha de comando:
     python -m src.pipeline 2.mp4 1.mp4 -o ../output/final.mp4   # ordem dada
 
 As próximas etapas (reenquadramento, legendas, imagens, zooms) entram em
-`render_project` como passos adicionais. Etapa 6: reenquadramento 9:16. Etapa 7: legendas.
+`render_project` como passos adicionais (6: 9:16, 7: legendas, 8: imagens).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import argparse
 import logging
 import math
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -24,8 +25,9 @@ from pydantic import BaseModel
 from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
 from src.config import get_settings
-from src.cuts import CutParams, TimeMap, apply_cuts
-from src.face import track_faces
+from src.cuts import RESTO_MAX, CutParams, TimeMap, apply_cuts, visible_words  # noqa: F401
+from src.face import FaceTrack, track_faces
+from src.images import ImageParams, PlanoImagens, build_overlays, plan_images, timeline_signature
 from src.project import Project
 from src.reframe import CameraPath, camera_path
 from src.transcribe import transcribe_clip
@@ -42,6 +44,9 @@ class PipelineOptions(BaseModel):
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
     legendas: bool = True  # legendas palavra por palavra queimadas no vídeo
     estilo_legenda: CaptionStyle = CaptionStyle()
+    imagens: bool = True  # imagens sobre a fala (LLM escolhe as palavras; precisa de chave)
+    sticker: bool = False  # recorta o fundo das imagens (rembg; 1º uso baixa o modelo)
+    parametros_imagens: ImageParams = ImageParams()
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
@@ -60,6 +65,8 @@ class PipelineResult(BaseModel):
     duracao_final: float
     duracao_original: float
     tempos: dict[str, float]
+    imagens: int = 0  # imagens que entraram no vídeo
+    plano: PlanoImagens | None = None  # plano usado (para salvar no projeto)
 
     @property
     def removido_pct(self) -> float:
@@ -88,23 +95,12 @@ def transcribe_project(project: Project, on_step: StepCallback = _noop) -> None:
     on_step("transcrição", 1.0)
 
 
-def render_project(
-    project: Project,
-    output: Path,
-    options: PipelineOptions | None = None,
-    on_step: StepCallback = _noop,
-) -> PipelineResult:
-    """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final."""
-    from src.render import render_timeline
-
-    options = options or PipelineOptions()
+def apply_project_cuts(
+    project: Project, options: PipelineOptions, on_step: StepCallback = _noop
+) -> None:
+    """Define os trechos de cada clipe (cortes de silêncio + LLM, ou o clipe inteiro)."""
     settings = get_settings()
     timeline = project.timeline
-    if not timeline.clipes:
-        raise ValueError("O projeto não tem clipes.")
-    tempos: dict[str, float] = {}
-
-    t0 = time.perf_counter()
     if options.cortes:
         n = len(timeline.clipes)
         apply_cuts(
@@ -121,95 +117,139 @@ def render_project(
             if clip.meta:
                 timeline.substituir_trechos(i, [(0.0, math.floor(clip.meta.duracao * fps) / fps)])
     on_step("cortes", 1.0)
+
+
+def image_plan(
+    project: Project,
+    options: PipelineOptions,
+    plano: PlanoImagens | None = None,
+    on_step: StepCallback = _noop,
+) -> PlanoImagens:
+    """O plano salvo, se ainda vale para os trechos atuais; senão, um novo (LLM em cache)."""
+    if plano is not None and plano.assinatura == timeline_signature(project):
+        log.info("Usando o plano de imagens salvo (%d itens), sem chamar o LLM.", len(plano.itens))
+        return plano
+    if plano is not None:
+        log.info("Os trechos mudaram desde o plano de imagens salvo: refazendo o plano.")
+    on_step("imagens", 0.0)
+    novo = plan_images(
+        project,
+        transcriber=lambda path: transcribe_clip(path),
+        params=options.parametros_imagens,
+    )
+    on_step("imagens", 1.0)
+    return novo
+
+
+def render_project(
+    project: Project,
+    output: Path,
+    options: PipelineOptions | None = None,
+    on_step: StepCallback = _noop,
+    plano: PlanoImagens | None = None,
+) -> PipelineResult:
+    """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final.
+
+    `plano`: plano de imagens salvo (preview aprovado); reaproveitado se ainda valer.
+    """
+    from src.clips import probe_clip
+    from src.render import render_timeline
+
+    options = options or PipelineOptions()
+    settings = get_settings()
+    timeline = project.timeline
+    if not timeline.clipes:
+        raise ValueError("O projeto não tem clipes.")
+    tempos: dict[str, float] = {}
+
+    t0 = time.perf_counter()
+    apply_project_cuts(project, options, on_step)
     tempos["transcrição + cortes"] = time.perf_counter() - t0
 
     cameras: dict[int, CameraPath] | None = None
-    size = None
+    tracks: dict[int, FaceTrack | None] = {}
     if options.reenquadrar:
-        t0 = time.perf_counter()
-        cameras = reframe_cameras(project, on_step)
         size = (settings.output_width, settings.output_height)
+    else:  # o render usa o tamanho do 1º clipe com trechos
+        primeiro = next((c for c in timeline.clipes if c.trechos), timeline.clipes[0])
+        meta = primeiro.meta or probe_clip(primeiro.arquivo)
+        size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
+    if options.reenquadrar or options.imagens:
+        t0 = time.perf_counter()
+        tracks = face_tracks(project, on_step)
+        if options.reenquadrar:
+            cameras = reframe_cameras(project, tracks)
         tempos["rosto"] = time.perf_counter() - t0
 
     output.parent.mkdir(parents=True, exist_ok=True)
     legendas = None
+    estilo = options.estilo_legenda.for_output(size)
     if options.legendas:
         t0 = time.perf_counter()
         legendas = make_captions(project, output.with_suffix(".ass"), options, size, on_step)
         tempos["legendas"] = time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    render_timeline(
-        timeline,
-        output,
-        size=size,
-        fps=settings.output_fps,
-        sample_rate=settings.output_sample_rate,
-        progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
-        cameras=cameras,
-        legendas=legendas,
-    )
-    tempos["render"] = time.perf_counter() - t0
+    with tempfile.TemporaryDirectory(prefix="imagens_") as tmp_imagens:
+        overlays = []
+        plano_usado = None
+        if options.imagens:
+            t0 = time.perf_counter()
+            plano_usado = image_plan(project, options, plano, on_step)
+            overlays = build_overlays(
+                plano_usado,
+                size,
+                estilo.box(size) if legendas is not None else None,
+                face_boxes_fn(project, tracks, cameras, size),
+                Path(tmp_imagens),
+                sticker=options.sticker,
+            )
+            tempos["imagens"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        render_timeline(
+            timeline,
+            output,
+            size=size if options.reenquadrar else None,
+            fps=settings.output_fps,
+            sample_rate=settings.output_sample_rate,
+            progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
+            cameras=cameras,
+            legendas=legendas,
+            overlays=overlays,
+        )
+        tempos["render"] = time.perf_counter() - t0
 
     result = PipelineResult(
         video=str(output),
         duracao_final=TimeMap(timeline).duracao,
         duracao_original=sum(c.meta.duracao for c in timeline.clipes if c.meta),
         tempos=tempos,
+        imagens=len(overlays),
+        plano=plano_usado,
     )
     log.info(
-        "Vídeo final: %s (%.1f s de %.1f s originais, %.0f%% removido)",
+        "Vídeo final: %s (%.1f s de %.1f s originais, %.0f%% removido, %d imagem(ns))",
         output,
         result.duracao_final,
         result.duracao_original,
         result.removido_pct,
+        result.imagens,
     )
     for nome, dur in tempos.items():
         log.info("  %-22s %6.1f s", nome, dur)
     return result
 
 
-RESTO_MAX = 0.04  # s: pedaço de palavra cortada abaixo disso não entra na legenda
-
-
-def visible_words(tm: TimeMap, clip: int, palavras: list) -> list:
-    """Palavras do clipe em t_out, sem os restos de palavras cortadas.
-
-    Uma palavra removida pelo LLM pode sobrar alguns ms numa borda de trecho (medido:
-    7–20 ms); na legenda, ela piscaria na tela. Só sai a palavra que PERDEU parte da
-    duração e ficou com um resto menor que `RESTO_MAX` (palavras inteiras ficam, mesmo
-    curtas como o "você" de 20 ms do Whisper). Um
-    limite proporcional apagava palavras reais cujo início o Whisper marca cedo
-    demais sobre a pausa cortada (ex.: "A gente", com 80 ms visíveis de 340 ms).
-    """
-    originais = {p.indice: p for p in palavras}
-    visiveis = []
-    for p in tm.words_to_out(clip, palavras):
-        orig = originais[p.indice]
-        sobra = p.fim - p.inicio
-        perdeu_parte = (orig.fim - orig.inicio) - sobra > 1e-3
-        # palavra inteira fica mesmo se o Whisper deu a ela 20 ms ("você", "quê")
-        if not perdeu_parte or sobra >= RESTO_MAX - 1e-9:
-            visiveis.append(p)
-    return visiveis
-
-
 def make_captions(
     project: Project,
     path: Path,
     options: PipelineOptions,
-    size: tuple[int, int] | None,
+    size: tuple[int, int],
     on_step: StepCallback = _noop,
 ) -> Path | None:
     """Gera o .ass com as palavras de cada clipe no tempo do vídeo final."""
-    from src.clips import probe_clip
-
     timeline = project.timeline
     tm = TimeMap(timeline)
-    if size is None:  # sem reenquadrar: o render usa o tamanho do 1º clipe com trechos
-        primeiro = next((c for c in timeline.clipes if c.trechos), timeline.clipes[0])
-        meta = primeiro.meta or probe_clip(primeiro.arquivo)
-        size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
     por_clipe = []
     for i, clip in enumerate(timeline.clipes):
         on_step("legendas", i / len(timeline.clipes))
@@ -225,25 +265,78 @@ def make_captions(
     return write_captions(por_clipe, path, options.estilo_legenda.for_output(size), size)
 
 
-def reframe_cameras(project: Project, on_step: StepCallback = _noop) -> dict[int, CameraPath]:
-    """Caminho da janela 9:16 de cada clipe que tem trechos (rastreio em cache)."""
-    from src.clips import probe_clip
-
+def face_tracks(project: Project, on_step: StepCallback = _noop) -> dict[int, FaceTrack | None]:
+    """Rastreio de rosto (em cache) de cada clipe que tem trechos."""
     clipes = project.timeline.clipes
-    cameras: dict[int, CameraPath] = {}
+    tracks: dict[int, FaceTrack | None] = {}
     for i, clip in enumerate(clipes):
         on_step("rosto", i / len(clipes))
         if not clip.trechos:
             continue
-        meta = clip.meta or probe_clip(clip.arquivo)
         try:
-            track = track_faces(Path(clip.arquivo))
+            tracks[i] = track_faces(Path(clip.arquivo))
         except Exception as exc:  # sem rosto não é motivo para não gerar o vídeo
-            log.warning("%s: rastreio de rosto falhou (%s); janela centralizada.", clip.nome, exc)
-            track = None
-        cameras[i] = camera_path(track, meta.largura, meta.altura)
+            log.warning("%s: rastreio de rosto falhou (%s).", clip.nome, exc)
+            tracks[i] = None
     on_step("rosto", 1.0)
+    return tracks
+
+
+def reframe_cameras(
+    project: Project, tracks: dict[int, FaceTrack | None] | None = None
+) -> dict[int, CameraPath]:
+    """Caminho da janela 9:16 de cada clipe que tem trechos."""
+    from src.clips import probe_clip
+
+    if tracks is None:
+        tracks = face_tracks(project)
+    cameras: dict[int, CameraPath] = {}
+    for i, track in tracks.items():
+        clip = project.timeline.clipes[i]
+        meta = clip.meta or probe_clip(clip.arquivo)
+        cameras[i] = camera_path(track, meta.largura, meta.altura)
     return cameras
+
+
+def face_boxes_fn(
+    project: Project,
+    tracks: dict[int, FaceTrack | None],
+    cameras: dict[int, CameraPath] | None,
+    size: tuple[int, int],
+    passo: float = 0.1,
+):
+    """(t0, t1) em t_out → caixas do rosto real na saída (para as imagens desviarem)."""
+    from src.clips import probe_clip
+
+    tm = TimeMap(project.timeline)
+    ow, oh = size
+
+    def para_saida(clip: int, caixa, t_src: float) -> tuple[int, int, int, int]:
+        if cameras is not None and clip in cameras:
+            cx, cy, w, h = cameras[clip].to_output(caixa, t_src, size)
+        else:  # sem reenquadrar: o quadro inteiro com letterbox no tamanho de saída
+            c = project.timeline.clipes[clip]
+            meta = c.meta or probe_clip(c.arquivo)
+            s = min(ow / meta.largura, oh / meta.altura)
+            dx, dy = (ow - meta.largura * s) / 2, (oh - meta.altura * s) / 2
+            cx = dx + caixa[0] * meta.largura * s
+            cy = dy + caixa[1] * meta.altura * s
+            w, h = caixa[2] * meta.largura * s, caixa[3] * meta.altura * s
+        return int(cx - w / 2), int(cy - h / 2), int(w), int(h)
+
+    def caixas(t0: float, t1: float) -> list[tuple[int, int, int, int]]:
+        resultado = []
+        n = max(2, int((t1 - t0) / passo) + 1)
+        for k in range(n):
+            t = min(t0 + k * (t1 - t0) / (n - 1), tm.duracao)
+            clip, t_src = tm.to_src(t)
+            track = tracks.get(clip)
+            caixa = track.box_at(t_src) if track is not None else None
+            if caixa is not None:
+                resultado.append(para_saida(clip, caixa, t_src))
+        return resultado
+
+    return caixas
 
 
 def run(
@@ -254,6 +347,8 @@ def run(
     cortes_fala: bool = True,
     reenquadrar: bool = True,
     legendas: bool = True,
+    imagens: bool = True,
+    sticker: bool = False,
     params: CutParams | None = None,
 ) -> Project:
     """Linha de comando: monta o projeto das entradas, processa e salva o project.json."""
@@ -266,6 +361,8 @@ def run(
         cortes_fala=cortes_fala,
         reenquadrar=reenquadrar,
         legendas=legendas,
+        imagens=imagens,
+        sticker=sticker,
         min_silencio=params.min_silencio,
         margem=params.margem,
         ruido_db=params.ruido_db,
@@ -289,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
         "--sem-reenquadrar", action="store_true", help="mantém o quadro original (sem 9:16)"
     )
     parser.add_argument("--sem-legendas", action="store_true", help="não queima legendas")
+    parser.add_argument("--sem-imagens", action="store_true", help="não coloca imagens")
+    parser.add_argument("--sticker", action="store_true", help="imagens sem fundo (rembg)")
     parser.add_argument("--min-silencio", type=float, default=CutParams().min_silencio)
     parser.add_argument("--margem", type=float, default=CutParams().margem)
     parser.add_argument("--ruido-db", type=float, default=CutParams().ruido_db)
@@ -308,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         cortes_fala=not args.sem_llm,
         reenquadrar=not args.sem_reenquadrar,
         legendas=not args.sem_legendas,
+        imagens=not args.sem_imagens,
+        sticker=args.sticker,
         params=params,
     )
     return 0

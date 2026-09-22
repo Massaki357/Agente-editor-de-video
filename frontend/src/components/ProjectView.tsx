@@ -14,6 +14,7 @@ import {
 import Actions from './Actions'
 import ClipList from './ClipList'
 import ErrorBox from './ErrorBox'
+import ImagePlan from './ImagePlan'
 import { HistoricoJobs, JobAtual } from './JobPanel'
 import Result from './Result'
 
@@ -33,6 +34,7 @@ export default function ProjectView({ projetoId, opcoesPadrao, onAlterado }: Pro
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null) // texto da operação em andamento
   const [cancelando, setCancelando] = useState(false)
+  const [versaoPlano, setVersaoPlano] = useState(0) // recarrega o painel de imagens
   const [nome, setNome] = useState('')
   const [pasta, setPasta] = useState('')
   const [arquivos, setArquivos] = useState<File[]>([])
@@ -67,6 +69,7 @@ export default function ProjectView({ projetoId, opcoesPadrao, onAlterado }: Pro
         setJobAtual(j)
         if (!jobAtivo(j)) {
           setCancelando(false)
+          if (j.tipo === 'imagens' || j.tipo === 'gerar') setVersaoPlano((v) => v + 1)
           await carregar()
           onAlterado()
         }
@@ -237,6 +240,8 @@ export default function ProjectView({ projetoId, opcoesPadrao, onAlterado }: Pro
           <HistoricoJobs jobs={jobs} />
         </details>
       </section>
+
+      <ImagePlan projetoId={projeto.id} bloqueado={bloqueado} versao={versaoPlano} />
 
       <Result projeto={projeto} />
     </div>

@@ -10,9 +10,10 @@ from src.api.jobs import Job, JobContext
 from src.api.store import ProjectStore
 from src.cache import file_hash
 from src.face import FaceParams, render_debug, track_faces
+from src.images import load_plan, save_plan
 from src.pipeline import PipelineOptions
 
-TIPOS = ("transcrever", "rosto", "gerar")
+TIPOS = ("transcrever", "rosto", "imagens", "gerar")
 VIDEO_FINAL = "final.mp4"
 
 
@@ -23,7 +24,8 @@ def debug_video_name(path: Path) -> str:
 
 def make_runner(store: ProjectStore):
     def run(job: Job, ctx: JobContext) -> dict[str, Any]:
-        tarefa = {"transcrever": transcrever, "rosto": rosto, "gerar": gerar}.get(job.tipo)
+        tarefas = {"transcrever": transcrever, "rosto": rosto, "imagens": imagens, "gerar": gerar}
+        tarefa = tarefas.get(job.tipo)
         if tarefa is None:
             raise ValueError(f"tipo de job desconhecido: {job.tipo}")
         return tarefa(store, job, ctx)
@@ -64,14 +66,33 @@ def rosto(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     return {"clipes": resultado}
 
 
+def imagens(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Preview: aplica os cortes e monta o plano de imagens (LLM + busca), sem render.
+
+    O plano fica salvo no projeto para o usuário aprovar/trocar; o `gerar` o usa.
+    """
+    options = PipelineOptions.model_validate(job.opcoes or {})
+    project = store.load(job.projeto_id)
+    pipeline.apply_project_cuts(project, options, ctx.step)
+    anterior = load_plan(store.plan_path(job.projeto_id))
+    plano = pipeline.image_plan(project, options, anterior, ctx.step)
+    store.save(job.projeto_id, project)
+    save_plan(plano, store.plan_path(job.projeto_id))
+    return {"itens": len(plano.itens), "com_foto": sum(1 for i in plano.itens if i.ativa)}
+
+
 def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
-    """Pipeline completo: cortes (silêncio + LLM) e render do vídeo final."""
+    """Pipeline completo: cortes, rosto, legendas, imagens (plano salvo) e render."""
     options = PipelineOptions.model_validate(job.opcoes or {})
     project = store.load(job.projeto_id)
     saida = store.saida_dir(job.projeto_id)
-    result = pipeline.render_project(project, saida / VIDEO_FINAL, options, ctx.step)
+    plano = load_plan(store.plan_path(job.projeto_id))
+    result = pipeline.render_project(project, saida / VIDEO_FINAL, options, ctx.step, plano)
     store.save(job.projeto_id, project)  # trechos e offsets calculados
+    if result.plano is not None:
+        save_plan(result.plano, store.plan_path(job.projeto_id))
     return {
+        "imagens": result.imagens,
         "video": VIDEO_FINAL,
         "duracao_final": round(result.duracao_final, 3),
         "duracao_original": round(result.duracao_original, 3),

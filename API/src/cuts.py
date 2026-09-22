@@ -694,3 +694,28 @@ class TimeMap:
                 continue
             resultado.append(p.model_copy(update={"inicio": inicio, "fim": fim}))
         return resultado
+
+
+RESTO_MAX = 0.04  # s: pedaço de palavra cortada abaixo disso não entra na legenda
+
+
+def visible_words(tm: TimeMap, clip: int, palavras: Sequence[Palavra]) -> list[Palavra]:
+    """Palavras do clipe em t_out, sem os restos de palavras cortadas.
+
+    Uma palavra removida pelo LLM pode sobrar alguns ms numa borda de trecho (medido:
+    7–20 ms); na legenda, ela piscaria na tela. Só sai a palavra que PERDEU parte da
+    duração e ficou com um resto menor que `RESTO_MAX` (palavras inteiras ficam, mesmo
+    curtas como o "você" de 20 ms do Whisper). Um
+    limite proporcional apagava palavras reais cujo início o Whisper marca cedo
+    demais sobre a pausa cortada (ex.: "A gente", com 80 ms visíveis de 340 ms).
+    """
+    originais = {p.indice: p for p in palavras}
+    visiveis = []
+    for p in tm.words_to_out(clip, palavras):
+        orig = originais[p.indice]
+        sobra = p.fim - p.inicio
+        perdeu_parte = (orig.fim - orig.inicio) - sobra > 1e-3
+        # palavra inteira fica mesmo se o Whisper deu a ela 20 ms ("você", "quê")
+        if not perdeu_parte or sobra >= RESTO_MAX - 1e-9:
+            visiveis.append(p)
+    return visiveis

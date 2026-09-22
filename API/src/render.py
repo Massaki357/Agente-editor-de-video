@@ -43,17 +43,21 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 
 from src.project import ClipMeta, Project, Timeline
 from src.reframe import CameraPath
+
+if TYPE_CHECKING:
+    from src.images import Overlay
 
 log = logging.getLogger(__name__)
 
@@ -114,10 +118,12 @@ def render_timeline(
     progress: Progress | None = None,
     cameras: Mapping[int, CameraPath] | None = None,
     legendas: Path | None = None,
+    overlays: Sequence[Overlay] = (),
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
 
     `legendas`: arquivo `.ass` (tempo do vídeo final) queimado na passada 2.
+    `overlays`: imagens posicionadas (`src.images.Overlay`), também na passada 2.
 
     `cameras` (índice do clipe → caminho da janela 9:16) liga o reenquadramento:
     cada trecho é recortado pelo OpenCV e redimensionado para `size`.
@@ -151,7 +157,7 @@ def render_timeline(
         )
 
         concatenated = _concat(seg_files, segments, tmp / "concat.mp4", settings)
-        final = _second_pass(concatenated, tmp, timeline, settings, legendas)
+        final = _second_pass(concatenated, tmp, timeline, settings, legendas, overlays)
         if final != output:
             shutil.move(str(final), str(output))
         if progress:
@@ -438,34 +444,61 @@ def _second_pass(
     timeline: Timeline,
     settings: RenderSettings,
     legendas: Path | None = None,
+    overlays: Sequence[Overlay] = (),
 ) -> Path:
     """Passada 2: efeitos sobre o vídeo concatenado, já no tempo do vídeo final.
 
-    Etapa 7: legendas `.ass` queimadas com o filtro `ass=`. A Etapa 8 (overlays de
-    imagem) entra aqui no mesmo filtro. Sem efeitos, devolve o concatenado.
-    Efeitos devem respeitar as emendas (`plan_segments`/`t_out`), o que as legendas
-    já fazem por construção (`src.captions`).
+    - Etapa 8: imagens (`overlays`), cada uma com `enable='between(t,a,b)'`, fade de
+      entrada/saída e um leve zoom de entrada (92% → 100% em 0,25 s).
+    - Etapa 7: legendas `.ass` com o filtro `ass=`, por cima das imagens.
+    Os intervalos já chegam dentro dos clipes (não atravessam emendas).
+    Sem efeitos, devolve o concatenado.
     """
-    if legendas is None:
+    if legendas is None and not overlays:
         return concatenated
-    from src.captions import FONTS_DIR
+    # Filtros com caminhos do Windows (dois-pontos, barras, espaços) são frágeis:
+    # tudo roda com cwd na pasta de trabalho, com nomes relativos.
+    cmd = [*FFMPEG_BASE, "-i", concatenated.name]
+    grafo: list[str] = []
+    atual = "0:v"
+    fps = settings.fps
+    for k, ov in enumerate(overlays, start=1):
+        nome = f"overlay_{k}.png"
+        shutil.copyfile(ov.png, tmp / nome)
+        dur = max(ov.fim - ov.inicio, 1 / fps)
+        fade = min(0.2, dur / 3)
+        cmd += ["-loop", "1", "-framerate", str(fps), "-t", f"{dur:.3f}", "-i", nome]
+        cx, cy = ov.x + ov.w / 2, ov.y + ov.h / 2
+        grafo.append(
+            f"[{k}:v]format=rgba,"
+            f"scale=w='trunc(iw*min(1,0.92+0.08*t/0.25)/2)*2':h=-2:eval=frame,"
+            f"fade=t=in:st=0:d={fade:.3f}:alpha=1,"
+            f"fade=t=out:st={dur - fade:.3f}:d={fade:.3f}:alpha=1,"
+            f"setpts=PTS-STARTPTS+{ov.inicio:.4f}/TB[img{k}]"
+        )
+        grafo.append(
+            f"[{atual}][img{k}]overlay=x='{cx:.1f}-overlay_w/2':y='{cy:.1f}-overlay_h/2':"
+            f"enable='between(t,{ov.inicio:.4f},{ov.fim:.4f})':eof_action=pass[v{k}]"
+        )
+        atual = f"v{k}"
+    finais = []
+    if legendas is not None:
+        from src.captions import FONTS_DIR
 
-    # O filtro ass= é chato com caminhos do Windows (dois-pontos, barras, espaços):
-    # roda com cwd na pasta de trabalho e usa nomes relativos.
-    shutil.copyfile(legendas, tmp / "legendas.ass")
-    fontes = tmp / "fonts"
-    fontes.mkdir(exist_ok=True)
-    for fonte in FONTS_DIR.glob("*.[ot]tf"):
-        shutil.copyfile(fonte, fontes / fonte.name)
-    saida = tmp / "com_legendas.mp4"
-    vf = (
-        "ass=legendas.ass:fontsdir=fonts,"
-        "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
-    )
-    cmd = [*FFMPEG_BASE, "-i", concatenated.name, "-vf", vf]
+        shutil.copyfile(legendas, tmp / "legendas.ass")
+        fontes = tmp / "fonts"
+        fontes.mkdir(exist_ok=True)
+        for fonte in FONTS_DIR.glob("*.[ot]tf"):
+            shutil.copyfile(fonte, fontes / fonte.name)
+        finais.append("ass=legendas.ass:fontsdir=fonts")
+    finais.append("setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv")
+    grafo.append(f"[{atual}]{','.join(finais)}[out]")
+
+    saida = tmp / "passada2.mp4"
+    cmd += ["-filter_complex", ";".join(grafo), "-map", "[out]", "-map", "0:a?"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p"]
     cmd += ["-c:a", "copy", "-movflags", "+faststart", saida.name]
-    _run_ffmpeg(cmd, "legendas (passada 2)", cwd=tmp)
+    _run_ffmpeg(cmd, "passada 2 (imagens/legendas)", cwd=tmp)
     return saida
 
 

@@ -408,3 +408,108 @@ def test_invalid_caption_color_is_rejected(client, video_dir):
     opcoes = {"estilo_legenda": {"cor": "amarelo"}}
     r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": opcoes})
     assert r.status_code == 422
+
+
+# ------------------------------------------------------------------ Etapa 8: imagens
+
+
+def _fake_images(monkeypatch, tmp_path):
+    """LLM de imagens e busca falsos; conta as chamadas ao LLM."""
+    from PIL import Image
+
+    import src.images as images
+
+    chamadas = {"llm": 0}
+
+    def suggest(palavras, settings=None):
+        chamadas["llm"] += 1
+        return [(0, palavras[0].palavra.texto, "fruit basket", 2.0)] if palavras else []
+
+    def busca(query, n=5, settings=None):
+        return [
+            images.Candidato(fonte="pexels", id=f"{query}-{k}", url=f"https://x/{k}", miniatura="m")
+            for k in range(3)
+        ]
+
+    foto = tmp_path / "foto.jpg"
+    Image.new("RGB", (900, 600), (20, 200, 60)).save(foto)
+    monkeypatch.setattr(images, "suggest", suggest)
+    monkeypatch.setattr(images, "search_images", busca)
+    monkeypatch.setattr("src.api.routes.images.search_images", busca)
+    monkeypatch.setattr(images, "download", lambda url, s=None: foto)
+    return chamadas
+
+
+def test_image_preview_edit_and_render_without_calling_the_llm_again(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    chamadas = _fake_images(monkeypatch, tmp_path)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    assert client.get(f"/api/projects/{pid}/imagens").status_code == 404
+
+    job = esperar(
+        client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"]
+    )
+    assert job["status"] == "concluido", job
+    assert job["resultado"] == {"itens": 1, "com_foto": 1}
+    plano = client.get(f"/api/projects/{pid}/imagens").json()
+    assert plano["valido"] is True
+    (item,) = plano["plano"]["itens"]
+    # "um" (1,0 s no original) cai em ~0,1 s no vídeo cortado; a imagem entra 0,2 s antes,
+    # mas nunca antes do começo do clipe
+    assert item["palavra"] == "um" and item["inicio"] == pytest.approx(0.0, abs=0.01)
+
+    # trocar a foto, desativar/ativar e mudar a busca: nada disso chama o LLM
+    r = client.patch(f"/api/projects/{pid}/imagens/{item['id']}", json={"escolhida": 2})
+    assert r.json()["plano"]["itens"][0]["escolhida"] == 2
+    assert (
+        client.patch(f"/api/projects/{pid}/imagens/{item['id']}", json={"escolhida": 9}).status_code
+        == 422
+    )
+    r = client.patch(f"/api/projects/{pid}/imagens/{item['id']}", json={"query": "green apple"})
+    novo = r.json()["plano"]["itens"][0]
+    assert novo["query"] == "green apple" and novo["escolhida"] == 0
+    assert novo["candidatos"][0]["id"] == "green apple-0"
+    assert chamadas["llm"] == 1
+
+    job = esperar(
+        client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).json()["id"]
+    )
+    assert job["status"] == "concluido", job
+    assert job["resultado"]["imagens"] == 1
+    assert chamadas["llm"] == 1  # o render usou o plano salvo
+    assert any("plano de imagens salvo" in linha for linha in job["log"])
+
+
+def test_image_plan_edit_is_blocked_during_a_job(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    _fake_images(monkeypatch, tmp_path)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    esperar(client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"])
+
+    def lento(store, job, ctx):
+        for k in range(100):
+            ctx.step("lento", k / 100)
+            time.sleep(0.02)
+        return {}
+
+    monkeypatch.setattr(tasks, "gerar", lento)
+    jid = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).json()["id"]
+    time.sleep(0.2)
+    assert client.patch(f"/api/projects/{pid}/imagens/0", json={"ativa": False}).status_code == 409
+    client.post(f"/api/jobs/{jid}/cancel")
+    esperar(client, jid)
+    assert client.patch(f"/api/projects/{pid}/imagens/0", json={"ativa": False}).status_code == 200
+    assert client.patch(f"/api/projects/{pid}/imagens/7", json={"ativa": False}).status_code == 404
+
+
+def test_new_query_keeps_an_item_the_user_turned_off(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    _fake_images(monkeypatch, tmp_path)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    esperar(client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"])
+    client.patch(f"/api/projects/{pid}/imagens/0", json={"ativa": False})
+    r = client.patch(f"/api/projects/{pid}/imagens/0", json={"query": "green apple"})
+    assert r.json()["plano"]["itens"][0]["ativa"] is False

@@ -30,6 +30,7 @@ O plano, as decisões fixas e o checklist ficam em `etapas.md`, que é a fonte d
 - Configuração só via `src.config.get_settings()`. O python-dotenv lê `KEY=   # comentário` como valor, e `config._clean` trata isso.
 - Processamento pesado na API é sempre um **job** (`API/src/api/tasks.py`), numa fila com um worker. Um projeto com job ativo não pode ser alterado (a API responde 409). Toda funcionalidade nova entra no núcleo (`src/`), é exposta na API (com testes em `tests/test_api.py`) e ganha um controle mínimo no frontend.
 - Legendas: `.ass` gerado por `src/captions.py` a partir das palavras em t_out, **por clipe** (nunca atravessa emenda), e queimado na passada 2 do render (`_second_pass`, filtro `ass=`). A fonte (Poppins Bold, OFL) fica em `API/fonts/` e é copiada para a pasta de trabalho do render.
+- Imagens (`src/images.py`): o LLM só escolhe as palavras e a query; o código faz a validação (densidade, 1,2–3 s, sem atravessar emenda), a busca (Pexels, com o Pixabay como alternativa, e cache) e o posicionamento (zonas livres de rosto e legenda). O plano fica em `API/data/projects/<id>/plano_imagens.json`: o job `imagens` é a prévia, e o `gerar` reaproveita o plano se a `assinatura` (trechos) não mudou.
 - Trechos (`Clip.trechos`) ficam na grade de frames (1/30 s): `cuts.TimeMap` e o render produzem exatamente os mesmos tempos.
 - Rosto:
   - O mediapipe 1.x não tem `mp.solutions`: use `mediapipe.tasks.python.vision.FaceDetector`.
