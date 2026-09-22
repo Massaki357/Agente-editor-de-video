@@ -20,6 +20,7 @@ dependencies = [
     "requests>=2.32",
     "rembg[cpu]>=2.0.60",
     "fastapi[standard]>=0.115",
+    "fonttools>=4.40",
 ]
 
 [project.optional-dependencies]

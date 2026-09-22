@@ -12,6 +12,22 @@ const FALLBACK: PipelineOptions = {
   cortes: true,
   cortes_fala: true,
   reenquadrar: true,
+  legendas: true,
+  estilo_legenda: {
+    fonte: 'Poppins',
+    tamanho: 84,
+    cor: '#FFFFFF',
+    cor_destaque: '#FFD400',
+    cor_contorno: '#000000',
+    contorno: 7,
+    sombra: 3,
+    margem_inferior: 520,
+    margem_lateral: 70,
+    maiusculas: true,
+    palavras_max: 4,
+    pausa_quebra: 0.45,
+    destaque_escala: 112,
+  },
   min_silencio: 0.4,
   margem: 0.08,
   ruido_db: -35,
@@ -20,6 +36,9 @@ const FALLBACK: PipelineOptions = {
 export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props) {
   // o pai recria o componente (key) quando os padrões chegam de GET /config
   const [op, setOp] = useState<PipelineOptions>(padrao ?? FALLBACK)
+
+  const setEstilo = (mudanca: Partial<PipelineOptions['estilo_legenda']>) =>
+    setOp({ ...op, estilo_legenda: { ...op.estilo_legenda, ...mudanca } })
 
   const off = bloqueado || semClipes
   const num = (campo: 'min_silencio' | 'margem' | 'ruido_db') => (e: ChangeEvent<HTMLInputElement>) =>
@@ -59,6 +78,44 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
           />
           vertical 9:16 (1080x1920) seguindo o rosto
         </label>
+        <label>
+          <input type="checkbox" checked={op.legendas} onChange={(e) => setOp({ ...op, legendas: e.target.checked })} />
+          legendas palavra por palavra
+        </label>
+        {op.legendas && (
+          <div className="linha">
+            <label>
+              tamanho
+              <input
+                type="number"
+                min="20"
+                max="200"
+                value={op.estilo_legenda.tamanho}
+                onChange={(e) => setEstilo({ tamanho: Number(e.target.value) || 84 })}
+              />
+            </label>
+            <label>
+              cor
+              <input type="color" value={op.estilo_legenda.cor} onChange={(e) => setEstilo({ cor: e.target.value })} />
+            </label>
+            <label>
+              destaque
+              <input
+                type="color"
+                value={op.estilo_legenda.cor_destaque}
+                onChange={(e) => setEstilo({ cor_destaque: e.target.value })}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={op.estilo_legenda.maiusculas}
+                onChange={(e) => setEstilo({ maiusculas: e.target.checked })}
+              />
+              MAIÚSCULAS
+            </label>
+          </div>
+        )}
         <label>
           silêncio mínimo (s)
           <input type="number" step="0.05" min="0" value={op.min_silencio} onChange={num('min_silencio')} />

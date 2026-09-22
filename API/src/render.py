@@ -113,8 +113,11 @@ def render_timeline(
     work_dir: Path | None = None,
     progress: Progress | None = None,
     cameras: Mapping[int, CameraPath] | None = None,
+    legendas: Path | None = None,
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
+
+    `legendas`: arquivo `.ass` (tempo do vídeo final) queimado na passada 2.
 
     `cameras` (índice do clipe → caminho da janela 9:16) liga o reenquadramento:
     cada trecho é recortado pelo OpenCV e redimensionado para `size`.
@@ -148,7 +151,7 @@ def render_timeline(
         )
 
         concatenated = _concat(seg_files, segments, tmp / "concat.mp4", settings)
-        final = _second_pass(concatenated, output, timeline, settings)
+        final = _second_pass(concatenated, tmp, timeline, settings, legendas)
         if final != output:
             shutil.move(str(final), str(output))
         if progress:
@@ -430,16 +433,40 @@ def _concat_quote(path: Path) -> str:
 
 
 def _second_pass(
-    concatenated: Path, output: Path, timeline: Timeline, settings: RenderSettings
+    concatenated: Path,
+    tmp: Path,
+    timeline: Timeline,
+    settings: RenderSettings,
+    legendas: Path | None = None,
 ) -> Path:
-    """Ponto de extensão das Etapas 7-8 (legendas `.ass`, overlays de imagem).
+    """Passada 2: efeitos sobre o vídeo concatenado, já no tempo do vídeo final.
 
-    Recebe o vídeo concatenado (tempo do vídeo final) e devolve o arquivo pronto.
-    Hoje não há efeitos: só devolve o concatenado para ser movido para `output`.
-    Efeitos futuros devem ser limitados por trecho (ver `plan_segments`/`t_out`)
-    para não atravessar emendas.
+    Etapa 7: legendas `.ass` queimadas com o filtro `ass=`. A Etapa 8 (overlays de
+    imagem) entra aqui no mesmo filtro. Sem efeitos, devolve o concatenado.
+    Efeitos devem respeitar as emendas (`plan_segments`/`t_out`), o que as legendas
+    já fazem por construção (`src.captions`).
     """
-    return concatenated
+    if legendas is None:
+        return concatenated
+    from src.captions import FONTS_DIR
+
+    # O filtro ass= é chato com caminhos do Windows (dois-pontos, barras, espaços):
+    # roda com cwd na pasta de trabalho e usa nomes relativos.
+    shutil.copyfile(legendas, tmp / "legendas.ass")
+    fontes = tmp / "fonts"
+    fontes.mkdir(exist_ok=True)
+    for fonte in FONTS_DIR.glob("*.[ot]tf"):
+        shutil.copyfile(fonte, fontes / fonte.name)
+    saida = tmp / "com_legendas.mp4"
+    vf = (
+        "ass=legendas.ass:fontsdir=fonts,"
+        "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
+    )
+    cmd = [*FFMPEG_BASE, "-i", concatenated.name, "-vf", vf]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p"]
+    cmd += ["-c:a", "copy", "-movflags", "+faststart", saida.name]
+    _run_ffmpeg(cmd, "legendas (passada 2)", cwd=tmp)
+    return saida
 
 
 # ------------------------------------------------------------- utilidades
@@ -476,10 +503,10 @@ def _work_directory(work_dir: Path | None) -> Iterator[Path]:
         yield Path(tmp)
 
 
-def _run_ffmpeg(cmd: list[str], what: str) -> None:
+def _run_ffmpeg(cmd: list[str], what: str, cwd: Path | None = None) -> None:
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd
         )
     except FileNotFoundError as exc:
         raise RenderError("ffmpeg não encontrado no PATH (rode `python -m src.doctor`)") from exc

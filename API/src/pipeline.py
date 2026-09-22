@@ -6,7 +6,7 @@ Usado pela API (`src.api`) e pela linha de comando:
     python -m src.pipeline 2.mp4 1.mp4 -o ../output/final.mp4   # ordem dada
 
 As próximas etapas (reenquadramento, legendas, imagens, zooms) entram em
-`render_project` como passos adicionais. Etapa 6: reenquadramento 9:16 seguindo o rosto.
+`render_project` como passos adicionais. Etapa 6: reenquadramento 9:16. Etapa 7: legendas.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
 from src.config import get_settings
 from src.cuts import CutParams, TimeMap, apply_cuts
@@ -39,6 +40,8 @@ class PipelineOptions(BaseModel):
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
+    legendas: bool = True  # legendas palavra por palavra queimadas no vídeo
+    estilo_legenda: CaptionStyle = CaptionStyle()
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
@@ -128,8 +131,14 @@ def render_project(
         size = (settings.output_width, settings.output_height)
         tempos["rosto"] = time.perf_counter() - t0
 
-    t0 = time.perf_counter()
     output.parent.mkdir(parents=True, exist_ok=True)
+    legendas = None
+    if options.legendas:
+        t0 = time.perf_counter()
+        legendas = make_captions(project, output.with_suffix(".ass"), options, size, on_step)
+        tempos["legendas"] = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
     render_timeline(
         timeline,
         output,
@@ -138,6 +147,7 @@ def render_project(
         sample_rate=settings.output_sample_rate,
         progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
         cameras=cameras,
+        legendas=legendas,
     )
     tempos["render"] = time.perf_counter() - t0
 
@@ -157,6 +167,62 @@ def render_project(
     for nome, dur in tempos.items():
         log.info("  %-22s %6.1f s", nome, dur)
     return result
+
+
+RESTO_MAX = 0.04  # s: pedaço de palavra cortada abaixo disso não entra na legenda
+
+
+def visible_words(tm: TimeMap, clip: int, palavras: list) -> list:
+    """Palavras do clipe em t_out, sem os restos de palavras cortadas.
+
+    Uma palavra removida pelo LLM pode sobrar alguns ms numa borda de trecho (medido:
+    7–20 ms); na legenda, ela piscaria na tela. Só sai a palavra que PERDEU parte da
+    duração e ficou com um resto menor que `RESTO_MAX` (palavras inteiras ficam, mesmo
+    curtas como o "você" de 20 ms do Whisper). Um
+    limite proporcional apagava palavras reais cujo início o Whisper marca cedo
+    demais sobre a pausa cortada (ex.: "A gente", com 80 ms visíveis de 340 ms).
+    """
+    originais = {p.indice: p for p in palavras}
+    visiveis = []
+    for p in tm.words_to_out(clip, palavras):
+        orig = originais[p.indice]
+        sobra = p.fim - p.inicio
+        perdeu_parte = (orig.fim - orig.inicio) - sobra > 1e-3
+        # palavra inteira fica mesmo se o Whisper deu a ela 20 ms ("você", "quê")
+        if not perdeu_parte or sobra >= RESTO_MAX - 1e-9:
+            visiveis.append(p)
+    return visiveis
+
+
+def make_captions(
+    project: Project,
+    path: Path,
+    options: PipelineOptions,
+    size: tuple[int, int] | None,
+    on_step: StepCallback = _noop,
+) -> Path | None:
+    """Gera o .ass com as palavras de cada clipe no tempo do vídeo final."""
+    from src.clips import probe_clip
+
+    timeline = project.timeline
+    tm = TimeMap(timeline)
+    if size is None:  # sem reenquadrar: o render usa o tamanho do 1º clipe com trechos
+        primeiro = next((c for c in timeline.clipes if c.trechos), timeline.clipes[0])
+        meta = primeiro.meta or probe_clip(primeiro.arquivo)
+        size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
+    por_clipe = []
+    for i, clip in enumerate(timeline.clipes):
+        on_step("legendas", i / len(timeline.clipes))
+        limite = tm.clip_bounds(i)
+        if limite is None or (clip.meta is not None and not clip.meta.tem_audio):
+            continue
+        palavras = transcribe_clip(Path(clip.arquivo)).palavras
+        por_clipe.append((visible_words(tm, i, palavras), limite))
+    on_step("legendas", 1.0)
+    if not any(ws for ws, _ in por_clipe):
+        log.info("Sem fala transcrita: vídeo sem legendas.")
+        return None
+    return write_captions(por_clipe, path, options.estilo_legenda.for_output(size), size)
 
 
 def reframe_cameras(project: Project, on_step: StepCallback = _noop) -> dict[int, CameraPath]:
@@ -187,6 +253,7 @@ def run(
     cortes: bool = True,
     cortes_fala: bool = True,
     reenquadrar: bool = True,
+    legendas: bool = True,
     params: CutParams | None = None,
 ) -> Project:
     """Linha de comando: monta o projeto das entradas, processa e salva o project.json."""
@@ -198,6 +265,7 @@ def run(
         cortes=cortes,
         cortes_fala=cortes_fala,
         reenquadrar=reenquadrar,
+        legendas=legendas,
         min_silencio=params.min_silencio,
         margem=params.margem,
         ruido_db=params.ruido_db,
@@ -220,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sem-reenquadrar", action="store_true", help="mantém o quadro original (sem 9:16)"
     )
+    parser.add_argument("--sem-legendas", action="store_true", help="não queima legendas")
     parser.add_argument("--min-silencio", type=float, default=CutParams().min_silencio)
     parser.add_argument("--margem", type=float, default=CutParams().margem)
     parser.add_argument("--ruido-db", type=float, default=CutParams().ruido_db)
@@ -238,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
         cortes=not args.sem_cortes,
         cortes_fala=not args.sem_llm,
         reenquadrar=not args.sem_reenquadrar,
+        legendas=not args.sem_legendas,
         params=params,
     )
     return 0

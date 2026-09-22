@@ -5,10 +5,29 @@ const BASE = '/api'
 
 // ----------------------------------------------------------------------------- tipos
 
+/** Espelha `CaptionStyle` (API/src/captions.py). Cores em #RRGGBB. */
+export interface CaptionStyle {
+  fonte: string
+  tamanho: number
+  cor: string
+  cor_destaque: string
+  cor_contorno: string
+  contorno: number
+  sombra: number
+  margem_inferior: number
+  margem_lateral: number
+  maiusculas: boolean
+  palavras_max: number
+  pausa_quebra: number
+  destaque_escala: number
+}
+
 export interface PipelineOptions {
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean
+  legendas: boolean
+  estilo_legenda: CaptionStyle
   min_silencio: number
   margem: number
   ruido_db: number

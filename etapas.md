@@ -364,7 +364,7 @@ Editor de Videos/
 - [x] Etapa 5: Rastreio de rosto
 - [x] Etapa 5b: API (FastAPI) e frontend funcional
 - [x] Etapa 6: Reenquadramento vertical
-- [ ] Etapa 7: Legendas
+- [x] Etapa 7: Legendas
 - [ ] Etapa 8: Imagens
 - [ ] Etapa 9: Zooms
 - [ ] Etapa 10: Interface web (design)

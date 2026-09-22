@@ -387,3 +387,24 @@ def test_output_files_open_inline(client, tmp_path, monkeypatch):
     esperar(client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).json()["id"])
     r = client.get(f"/api/projects/{pid}/files/final.mp4")
     assert r.headers["content-disposition"].startswith("inline")
+
+
+def test_generate_with_custom_caption_style(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    opcoes = {"estilo_legenda": {"cor_destaque": "#00FF00", "maiusculas": False}}
+    r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": opcoes})
+    job = esperar(client, r.json()["id"])
+    assert job["status"] == "concluido", job
+    assert "legendas" in job["resultado"]["tempos"]
+    ass = (get_settings().data_dir / "projects" / pid / "saida" / "final.ass").read_text("utf-8")
+    assert r"\c&H00FF00&" in ass and "um" in ass  # destaque verde, sem caixa alta
+
+
+def test_invalid_caption_color_is_rejected(client, video_dir):
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(video_dir)})
+    opcoes = {"estilo_legenda": {"cor": "amarelo"}}
+    r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": opcoes})
+    assert r.status_code == 422
