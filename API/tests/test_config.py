@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import _ENV_FIELDS, PROJECT_ROOT, load_settings
+from src.config import _ENV_FIELDS, PROJECT_ROOT, Settings, load_settings
 
 
 @pytest.fixture
@@ -80,3 +80,21 @@ def test_empty_key_in_api_env_does_not_hide_root_env(clean_env, tmp_path, monkey
     s = config.load_settings()
     assert s.openai_api_key.get_secret_value() == "sk-raiz"  # vazio em API/.env não esconde
     assert s.whisper_model == "small"  # API/.env tem precedência quando preenchido
+
+
+def test_available_models_need_the_provider_key():
+    s = Settings(llm_model="openai:gpt-5-mini", openai_api_key="k")
+    assert s.available_llm_models() == ["openai:gpt-5-mini", "openai:gpt-5"]
+    com_anthropic = s.model_copy(update={"anthropic_api_key": "k2"})
+    assert "anthropic:claude-sonnet-5" in com_anthropic.available_llm_models()
+    # o modelo do .env aparece mesmo fora da lista (ou sem chave)
+    outro = Settings(llm_model="openai:gpt-6-turbo")
+    assert outro.available_llm_models() == ["openai:gpt-6-turbo"]
+
+
+def test_for_model_only_changes_the_model():
+    s = Settings(llm_model="openai:gpt-5-mini", openai_api_key="k")
+    assert s.for_model(None) is s and s.for_model("openai:gpt-5-mini") is s
+    outro = s.for_model("anthropic:claude-sonnet-5")
+    assert outro.llm_model == "anthropic:claude-sonnet-5"
+    assert outro.openai_api_key == s.openai_api_key and outro.cache_dir == s.cache_dir

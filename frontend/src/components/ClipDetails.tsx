@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, fmtSeg, urlDoClipe, mensagemErro, type ClipOut, type RostoOut, type TranscricaoOut } from '../api'
+import { api, fmtNum, fmtSeg, urlDoClipe, mensagemErro, type ClipOut, type RostoOut, type TranscricaoOut } from '../api'
 import ErrorBox from './ErrorBox'
 
 export type Aba = 'video' | 'transcricao' | 'rosto'
@@ -10,7 +10,7 @@ interface Props {
   aba: Aba
 }
 
-/** Painel aberto abaixo de um clipe: player, transcrição ou rastreio de rosto. */
+/** Conteúdo do palco no modo "clipe": player, transcrição ou rastreio de rosto. */
 export default function ClipDetails({ projetoId, clip, aba }: Props) {
   if (aba === 'video') {
     return (
@@ -42,7 +42,12 @@ function useCarregar<T>(buscar: (projetoId: string, indice: number) => Promise<T
 
 function Transcricao({ projetoId, indice }: { projetoId: string; indice: number }) {
   const { dado, erro } = useCarregar<TranscricaoOut>(api.transcricao, projetoId, indice)
-  if (erro) return <div className="detalhe"><ErrorBox erro={erro} /></div>
+  if (erro)
+    return (
+      <div className="detalhe" aria-live="polite">
+        <ErrorBox erro={erro} />
+      </div>
+    )
   if (!dado) return <div className="detalhe suave">carregando transcrição…</div>
   return (
     <div className="detalhe">
@@ -64,11 +69,11 @@ function Transcricao({ projetoId, indice }: { projetoId: string; indice: number 
           <tbody>
             {dado.palavras.map((p) => (
               <tr key={p.indice}>
-                <td>{p.indice}</td>
+                <td className="numeros">{p.indice}</td>
                 <td>{p.texto}</td>
-                <td>{p.inicio.toFixed(2)}</td>
-                <td>{p.fim.toFixed(2)}</td>
-                <td>{p.prob.toFixed(2)}</td>
+                <td className="numeros">{fmtNum(p.inicio, 2)}</td>
+                <td className="numeros">{fmtNum(p.fim, 2)}</td>
+                <td className="numeros">{fmtNum(p.prob, 2)}</td>
               </tr>
             ))}
           </tbody>
@@ -80,13 +85,20 @@ function Transcricao({ projetoId, indice }: { projetoId: string; indice: number 
 
 function Rosto({ projetoId, indice }: { projetoId: string; indice: number }) {
   const { dado, erro } = useCarregar<RostoOut>(api.rosto, projetoId, indice)
-  if (erro) return <div className="detalhe"><ErrorBox erro={erro} /></div>
+  if (erro)
+    return (
+      <div className="detalhe" aria-live="polite">
+        <ErrorBox erro={erro} />
+      </div>
+    )
   if (!dado) return <div className="detalhe suave">carregando rastreio…</div>
   return (
     <div className="detalhe">
       <p>
-        Cobertura: <strong>{(dado.cobertura * 100).toFixed(1)}%</strong> dos frames · {dado.n_frames}{' '}
-        frames · {dado.largura}×{dado.altura} @ {dado.fps.toFixed(2)} fps
+        Cobertura: <strong>{fmtNum(dado.cobertura * 100)}%</strong> dos frames ·{' '}
+        <span className="numeros">
+          {dado.n_frames} frames · {dado.largura}×{dado.altura} @ {fmtNum(dado.fps, 2)} fps
+        </span>
       </p>
       {dado.debug_url ? (
         <video src={dado.debug_url} controls preload="metadata" className="player" />

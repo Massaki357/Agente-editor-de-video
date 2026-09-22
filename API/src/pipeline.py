@@ -24,7 +24,7 @@ from pydantic import BaseModel
 
 from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
-from src.config import get_settings
+from src.config import Settings, get_settings
 from src.cuts import RESTO_MAX, CutParams, TimeMap, apply_cuts, visible_words  # noqa: F401
 from src.face import FaceTrack, track_faces
 from src.images import ImageParams, PlanoImagens, build_overlays, plan_images, timeline_signature
@@ -47,11 +47,16 @@ class PipelineOptions(BaseModel):
     imagens: bool = True  # imagens sobre a fala (LLM escolhe as palavras; precisa de chave)
     sticker: bool = False  # recorta o fundo das imagens (rembg; 1º uso baixa o modelo)
     parametros_imagens: ImageParams = ImageParams()
+    llm_model: str | None = None  # modelo do LLM; None = o do .env (`LLM_MODEL`)
     zooms: bool = True  # zooms no rosto em momentos de ênfase (LLM); só com `reenquadrar`
     parametros_zoom: ZoomParams = ZoomParams()
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
+
+    def llm_settings(self) -> Settings:
+        """Configurações com o modelo escolhido nesta execução."""
+        return get_settings().for_model(self.llm_model)
 
     def cut_params(self) -> CutParams:
         return CutParams(
@@ -109,6 +114,7 @@ def apply_project_cuts(
         apply_cuts(
             project,
             options.cut_params(),
+            settings=options.llm_settings(),
             cortes_fala=options.cortes_fala,
             # busca no módulo a cada chamada: os testes trocam o transcritor
             transcriber=lambda path, settings=None: transcribe_clip(path, settings=settings),
@@ -143,6 +149,7 @@ def image_plan(
         project,
         transcriber=lambda path: transcribe_clip(path),
         params=options.parametros_imagens,
+        settings=options.llm_settings(),
     )
     on_step("imagens", 1.0)
     return novo

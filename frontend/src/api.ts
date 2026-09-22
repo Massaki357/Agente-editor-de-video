@@ -48,6 +48,8 @@ export interface PipelineOptions {
   imagens: boolean
   sticker: boolean
   parametros_imagens: ImageParams
+  /** modelo do LLM desta execução; `null` = o do `.env` (ver `ConfigOut.llm_model`) */
+  llm_model: string | null
   /** zooms no rosto em momentos de ênfase; só tem efeito com `reenquadrar` */
   zooms: boolean
   parametros_zoom: ZoomParams
@@ -123,7 +125,10 @@ export interface CheckOut {
 }
 
 export interface ConfigOut {
+  /** modelo do `.env`: é o usado quando `PipelineOptions.llm_model` é nulo */
   llm_model: string
+  /** modelos que podem ser escolhidos nas opções (provedores com chave) */
+  llm_models: string[]
   whisper_model: string
   whisper_device: string
   saida: Record<string, number>
@@ -339,14 +344,37 @@ export function mensagemErro(e: unknown): string {
 
 // ----------------------------------------------------------------------------- formatação
 
+/** Número no formato do Brasil: vírgula decimal (13,2). */
+export function fmtNum(v: number | null | undefined, casas = 1): string {
+  if (v == null || Number.isNaN(v)) return '—'
+  return v.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
+}
+
 export function fmtSeg(s: number | null | undefined): string {
   if (s == null) return '—'
   const m = Math.floor(s / 60)
   const r = s - m * 60
-  return m > 0 ? `${m}:${r.toFixed(1).padStart(4, '0')}` : `${r.toFixed(1)} s`
+  return m > 0 ? `${m}:${fmtNum(r).padStart(4, '0')}` : `${fmtNum(r)} s`
 }
 
 export function fmtData(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('pt-BR')
+}
+
+/** Relógio mm:ss (tempo decorrido de job e tempos do player). */
+export function fmtRelogio(s: number | null | undefined): string {
+  if (s == null || !Number.isFinite(s) || s < 0) return '00:00'
+  const total = Math.floor(s)
+  const m = Math.floor(total / 60)
+  return `${String(m).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** Lê um número do `resultado` do job (que a API devolve sem tipo fixo). */
+export function numeroDoResultado(
+  resultado: Record<string, unknown> | null,
+  campo: string,
+): number | null {
+  const v = resultado?.[campo]
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 }

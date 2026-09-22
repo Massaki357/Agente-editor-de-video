@@ -85,6 +85,9 @@ def test_health_config_and_doctor(client):
     assert config.status_code == 200
     assert "api_key" not in config.text.lower()  # nunca expõe segredos
     assert config.json()["saida"] == {"largura": 1080, "altura": 1920, "fps": 30}
+    corpo = config.json()
+    assert corpo["llm_model"] in corpo["llm_models"]  # o modelo do .env sempre é escolhível
+    assert corpo["opcoes_padrao"]["llm_model"] is None
     doctor = client.get("/api/doctor").json()
     assert {"nome", "status", "detalhe"} <= set(doctor[0])
     assert any(c["nome"] == "ffmpeg" for c in doctor)

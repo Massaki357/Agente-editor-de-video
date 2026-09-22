@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api, mensagemErro, type CheckOut, type ConfigOut } from '../api'
-import ErrorBox from './ErrorBox'
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { api, fmtSeg, type ConfigOut, type ProjectOut } from '../api'
 
 interface Props {
   config: ConfigOut | null
+  /** projeto aberto (null quando nenhum): dá o nome editável do cabeçalho */
+  projeto: ProjectOut | null
+  onRenomear: (nome: string) => void
+  onRecarregar: () => void
+  onAmbiente: () => void
 }
 
-export default function Header({ config }: Props) {
+/** Cabeçalho fixo: marca, nome do projeto, estado da API e acesso ao Ambiente. */
+export default function Header({ config, projeto, onRenomear, onRecarregar, onAmbiente }: Props) {
   const [online, setOnline] = useState<boolean | null>(null)
-  const [aberto, setAberto] = useState(false)
-  const [checks, setChecks] = useState<CheckOut[] | null>(null)
-  const [carregando, setCarregando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
+  const [editando, setEditando] = useState(false)
+  const [nome, setNome] = useState('')
+  const campo = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     let vivo = true
@@ -20,7 +24,7 @@ export default function Header({ config }: Props) {
         .health()
         .then(() => vivo && setOnline(true))
         .catch(() => vivo && setOnline(false))
-    checar()
+    void checar()
     const t = setInterval(checar, 10000)
     return () => {
       vivo = false
@@ -28,76 +32,88 @@ export default function Header({ config }: Props) {
     }
   }, [])
 
-  const rodarDoctor = useCallback(async () => {
-    setCarregando(true)
-    setErro(null)
-    try {
-      setChecks(await api.doctor())
-    } catch (e) {
-      setErro(mensagemErro(e))
-    } finally {
-      setCarregando(false)
-    }
-  }, [])
+  // foca o campo ao entrar no modo de edição
+  useEffect(() => {
+    if (editando) campo.current?.select()
+  }, [editando])
 
-  const alternar = () => {
-    const novo = !aberto
-    setAberto(novo)
-    if (novo && checks === null) void rodarDoctor()
+  const abrirEdicao = () => {
+    setNome(projeto?.nome ?? '')
+    setEditando(true)
   }
 
+  const salvar = (ev: SyntheticEvent) => {
+    ev.preventDefault()
+    const limpo = nome.trim()
+    if (limpo && limpo !== projeto?.nome) onRenomear(limpo)
+    setEditando(false)
+  }
+
+  const bloqueado = Boolean(projeto?.job_ativo)
+  const estado = online === null ? 'verificando…' : online ? 'API no ar' : 'API fora do ar'
+
   return (
-    <header className="cabecalho">
-      <div className="linha">
-        <h1>Editor de vídeos</h1>
-        <span className={`selo ${online ? 'ok' : online === false ? 'falta' : ''}`}>
-          API: {online === null ? 'verificando…' : online ? 'no ar' : 'fora do ar'}
-        </span>
-        <a href="/docs" target="_blank" rel="noreferrer">
-          documentação da API (/docs)
-        </a>
-        <button onClick={alternar}>{aberto ? 'Ocultar ambiente' : 'Ambiente (doctor e config)'}</button>
+    <header className="topo">
+      <div className="marca">
+        <span aria-hidden="true">▶</span> EDITOR
       </div>
-      {aberto && (
-        <div className="painel">
-          <h3>Configuração</h3>
-          {config ? (
-            <ul className="compacta">
-              <li>Modelo LLM: {config.llm_model}</li>
-              <li>
-                Whisper: {config.whisper_model} ({config.whisper_device})
-              </li>
-              <li>
-                Saída: {config.saida.largura}×{config.saida.altura} @ {config.saida.fps} fps
-              </li>
-            </ul>
-          ) : (
-            <p>configuração indisponível</p>
-          )}
-          <h3>
-            Doctor{' '}
-            <button onClick={rodarDoctor} disabled={carregando}>
-              {carregando ? 'verificando…' : 'verificar de novo'}
+
+      {projeto &&
+        (editando ? (
+          <form className="nome-projeto" onSubmit={salvar}>
+            <label className="oculto" htmlFor="nome-projeto">
+              Nome do projeto
+            </label>
+            <input
+              id="nome-projeto"
+              ref={campo}
+              value={nome}
+              maxLength={120}
+              onChange={(e) => setNome(e.target.value)}
+              onBlur={salvar}
+              onKeyDown={(e) => e.key === 'Escape' && setEditando(false)}
+            />
+            <button type="submit" className="icone" title="Salvar nome">
+              ✓
             </button>
-          </h3>
-          <ErrorBox erro={erro} />
-          {checks && (
-            <table>
-              <tbody>
-                {checks.map((c) => (
-                  <tr key={c.nome}>
-                    <td>
-                      <span className={`selo ${c.status.toLowerCase()}`}>{c.status}</span>
-                    </td>
-                    <td>{c.nome}</td>
-                    <td className="suave">{c.detalhe}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+          </form>
+        ) : (
+          <div className="nome-projeto">
+            <h1>{projeto.nome}</h1>
+            <button
+              type="button"
+              className="icone"
+              onClick={abrirEdicao}
+              disabled={bloqueado}
+              title={bloqueado ? 'há um job em andamento' : 'Renomear projeto'}
+            >
+              ✎<span className="oculto">Renomear projeto</span>
+            </button>
+            <button type="button" className="icone" onClick={onRecarregar} title="Recarregar projeto">
+              ⟳<span className="oculto">Recarregar projeto</span>
+            </button>
+          </div>
+        ))}
+
+      {projeto && projeto.clipes.length > 0 && (
+        <span className="suave numeros" title="duração dos clipes → duração depois dos cortes">
+          {fmtSeg(projeto.clipes.reduce((s, c) => s + (c.duracao ?? 0), 0))}
+          {projeto.duracao_total > 0 ? ` → ${fmtSeg(projeto.duracao_total)}` : ''}
+        </span>
       )}
+
+      <div className="topo-direita">
+        <span
+          className={`estado ${online ? 'ok' : online === false ? 'falta' : ''}`}
+          aria-live="polite"
+        >
+          <span className="ponto" aria-hidden="true" /> {estado}
+          {config ? ` · Whisper ${config.whisper_device}` : ''}
+        </span>
+        <button type="button" onClick={onAmbiente}>
+          Ambiente ⚙
+        </button>
+      </div>
     </header>
   )
 }

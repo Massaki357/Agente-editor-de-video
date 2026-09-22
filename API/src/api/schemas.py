@@ -99,7 +99,8 @@ class CheckOut(BaseModel):
 
 
 class ConfigOut(BaseModel):
-    llm_model: str
+    llm_model: str  # o do .env (padrão quando `opcoes.llm_model` é nulo)
+    llm_models: list[str] = Field(description="modelos que podem ser escolhidos nas opções")
     whisper_model: str
     whisper_device: str
     saida: dict[str, int]

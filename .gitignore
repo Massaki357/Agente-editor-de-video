@@ -23,3 +23,6 @@ output/
 # Claude Code
 .claude/settings.local.json
 .claude/.tests_dirty
+
+# capturas de tela do navegador (verificação da interface)
+.playwright-mcp/

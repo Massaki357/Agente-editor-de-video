@@ -20,6 +20,16 @@ OUTPUT_DIR = REPO_ROOT / "output"
 WhisperDevice = Literal["auto", "cuda", "cpu"]
 
 
+# Modelos oferecidos na interface (o `.env` pode usar qualquer outro que o LangChain
+# aceite, no formato `provedor:modelo`).
+LLM_MODELS = (
+    "openai:gpt-5-mini",
+    "openai:gpt-5",
+    "anthropic:claude-sonnet-5",
+    "anthropic:claude-haiku-4-5",
+)
+
+
 class Settings(BaseModel):
     llm_model: str = "openai:gpt-5-mini"
     openai_api_key: SecretStr | None = None
@@ -67,6 +77,21 @@ class Settings(BaseModel):
 
     def api_key_for_provider(self, provider: str) -> SecretStr | None:
         return {"openai": self.openai_api_key, "anthropic": self.anthropic_api_key}.get(provider)
+
+    def available_llm_models(self) -> list[str]:
+        """Modelos da lista cujo provedor tem chave, mais o do `.env`, sem repetir."""
+        disponiveis = [
+            m for m in LLM_MODELS if self.api_key_for_provider(m.split(":", 1)[0]) is not None
+        ]
+        if self.llm_model not in disponiveis:
+            disponiveis.insert(0, self.llm_model)
+        return disponiveis
+
+    def for_model(self, llm_model: str | None) -> Settings:
+        """Estas configurações com outro modelo de LLM (escolhido na interface)."""
+        if not llm_model or llm_model == self.llm_model:
+            return self
+        return self.model_copy(update={"llm_model": llm_model})
 
 
 _ENV_FIELDS = {

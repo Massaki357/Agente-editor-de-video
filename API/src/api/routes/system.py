@@ -22,6 +22,7 @@ def config() -> ConfigOut:
     s = get_settings()
     return ConfigOut(
         llm_model=s.llm_model,
+        llm_models=s.available_llm_models(),
         whisper_model=s.whisper_model,
         whisper_device=s.whisper_device,
         saida={"largura": s.output_width, "altura": s.output_height, "fps": s.output_fps},

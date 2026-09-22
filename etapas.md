@@ -341,6 +341,7 @@ Editor de Videos/
 - Fila de jobs para renderizar vários projetos em sequência *(a fila da API já processa jobs de vários projetos em sequência desde a Etapa 5b; falta expor a fila na interface)*.
 - Logs por execução (tempo de cada etapa, tokens usados e custo estimado do LLM).
 - Cancelamento e progresso mais finos nos jobs `rosto` e `transcrever` (hoje só entre clipes).
+- Acessibilidade que ficou pendente da Etapa 10: abas internas do clipe sem `aria-controls`/`tabpanel`, sem navegação por setas entre abas (roving tabindex), a gaveta "Ambiente" não prende o foco (só fecha com Esc) e a reordenação por teclado não anuncia a nova posição.
 - Riscos anotados na Etapa 6 (reenquadramento):
   - Fontes com fps variável (VFR) ou `start_time` de vídeo diferente de 0: o caminho da câmera pode ficar alguns frames defasado. A sincronia A/V não é afetada.
   - Arquivos 4K muito grandes: cada trecho decodifica o áudio desde o início (`atrim`) e manda o quadro inteiro pelo pipe. Se ficar lento, faça uma pré-rolagem de `-ss` e reduza o quadro no FFmpeg antes do pipe.
@@ -367,5 +368,5 @@ Editor de Videos/
 - [x] Etapa 7: Legendas
 - [x] Etapa 8: Imagens
 - [x] Etapa 9: Zooms
-- [ ] Etapa 10: Interface web (design)
+- [x] Etapa 10: Interface web (design)
 - [ ] Etapa 11: Polimento

@@ -6,7 +6,7 @@ O plano, as decisões fixas e o checklist ficam em `etapas.md`, que é a fonte d
 
 ## Layout
 - `API/`: backend Python 3.12 com `uv`: `src/` (núcleo + `src/api/`), `tests/`, `pyproject.toml`, `.cache/` e `data/` (projetos da API). **Todo comando `uv` roda dentro de `API/`.**
-- `frontend/`: Vite + React + TypeScript. Todas as chamadas passam por `frontend/src/api.ts`; em dev, o Vite faz proxy de `/api` para `http://127.0.0.1:8000`.
+- `frontend/`: Vite + React + TypeScript. Todas as chamadas passam por `frontend/src/api.ts`; em dev, o Vite faz proxy de `/api` para `http://127.0.0.1:8000`. O layout (Etapa 10) é o `App.tsx` em grid: cabeçalho, palco (`Stage.tsx`: resultado, clipe ou plano criativo), faixa de clipes (`ClipStrip.tsx`, arrastar para reordenar), coluna de opções e job (`OptionsPanel.tsx` + `JobPanel.tsx`) e barra de projetos (`ProjectBar.tsx`); o `Workspace.tsx` cuida do estado do projeto aberto. Tema escuro com variáveis em `index.css`.
 - `samples/` (vídeos de teste do usuário) e `output/` (resultados para conferir) ficam na raiz.
 - `.env` na raiz ou em `API/.env`: `config.load_settings` lê os dois, e `API/.env` tem precedência.
 
@@ -27,7 +27,7 @@ O plano, as decisões fixas e o checklist ficam em `etapas.md`, que é a fonte d
 ## Regras que o código precisa respeitar
 - O LLM decide *o quê/quando* (índices de palavras, queries); o código decide *onde/como* (geometria).
 - LangChain só em `API/src/llm/client.py`; prompts em `API/src/llm/prompts/*.md`.
-- Configuração só via `src.config.get_settings()`. O python-dotenv lê `KEY=   # comentário` como valor, e `config._clean` trata isso.
+- Configuração só via `src.config.get_settings()`. O modelo do LLM pode ser trocado por execução em `PipelineOptions.llm_model` (`Settings.for_model`); `GET /api/config` lista os escolhíveis (`Settings.available_llm_models`, só provedores com chave). O python-dotenv lê `KEY=   # comentário` como valor, e `config._clean` trata isso.
 - Processamento pesado na API é sempre um **job** (`API/src/api/tasks.py`), numa fila com um worker. Um projeto com job ativo não pode ser alterado (a API responde 409). Toda funcionalidade nova entra no núcleo (`src/`), é exposta na API (com testes em `tests/test_api.py`) e ganha um controle mínimo no frontend.
 - Legendas: `.ass` gerado por `src/captions.py` a partir das palavras em t_out, **por clipe** (nunca atravessa emenda), e queimado na passada 2 do render (`_second_pass`, filtro `ass=`). A fonte (Poppins Bold, OFL) fica em `API/fonts/` e é copiada para a pasta de trabalho do render.
 - Imagens (`src/images.py`): o LLM só escolhe as palavras e a query; o código faz a validação (densidade, 1,2–3 s, sem atravessar emenda), a busca (Pexels, com o Pixabay como alternativa, e cache) e o posicionamento (zonas livres de rosto e legenda). O plano criativo (imagens + zooms, uma chamada só ao LLM com o prompt `plano_criativo`) fica em `API/data/projects/<id>/plano_imagens.json`: o job `imagens` é a prévia, e o `gerar` reaproveita o plano se a `assinatura` (trechos) não mudou.
