@@ -13,6 +13,9 @@ Desenho (pensado para sincronia A/V e memória constante):
      trecho já na grade de fps, o **OpenCV** recorta a janela 9:16 que segue o rosto
      (`src.reframe.CameraPath`), redimensiona para 1080x1920 e envia os frames por
      pipe a um segundo FFmpeg, que os junta ao áudio original do trecho.
+   - Com `zoom` (Etapa 9): a janela encolhe pela escala do instante (t_out) e o
+     recorte é feito em coordenadas fracionárias (`cv2.warpAffine`), sem o tremor
+     de 1 px que o arredondamento causaria enquanto a escala muda.
 2. **Concatenação** (`_concat`): concat demuxer, vídeo copiado e áudio codificado
    em AAC uma única vez (codificar AAC por trecho criaria gaps de priming).
 3. **Passada 2** (`_second_pass`): ponto de extensão para legendas `.ass` e
@@ -119,6 +122,7 @@ def render_timeline(
     cameras: Mapping[int, CameraPath] | None = None,
     legendas: Path | None = None,
     overlays: Sequence[Overlay] = (),
+    zoom: Callable[[float], float] | None = None,
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
 
@@ -127,6 +131,7 @@ def render_timeline(
 
     `cameras` (índice do clipe → caminho da janela 9:16) liga o reenquadramento:
     cada trecho é recortado pelo OpenCV e redimensionado para `size`.
+    `zoom(t_out) → escala` (Etapa 9, só com `cameras`): zoom no rosto.
 
     `size=None` usa o tamanho de exibição do primeiro clipe (arredondado para par).
     `work_dir` guarda os intermediários (útil para depuração); sem ele, usa uma
@@ -153,7 +158,7 @@ def render_timeline(
         seg_dir = tmp / "segmentos"
         seg_dir.mkdir(parents=True, exist_ok=True)
         seg_files = _render_segments(
-            segments, seg_dir, settings, workers, progress, total, cameras or {}
+            segments, seg_dir, settings, workers, progress, total, cameras or {}, zoom
         )
 
         concatenated = _concat(seg_files, segments, tmp / "concat.mp4", settings)
@@ -215,6 +220,7 @@ def _render_segments(
     progress: Progress | None,
     total: int,
     cameras: Mapping[int, CameraPath],
+    zoom: Callable[[float], float] | None = None,
 ) -> list[Path]:
     files = [seg_dir / f"seg_{s.indice:04d}{SEGMENT_EXT}" for s in segments]
     done = 0
@@ -223,7 +229,7 @@ def _render_segments(
         for seg, dest in zip(segments, files, strict=True):
             camera = cameras.get(seg.clip_index)
             if camera is not None:
-                fut = pool.submit(_render_segment_reframe, seg, dest, settings, camera)
+                fut = pool.submit(_render_segment_reframe, seg, dest, settings, camera, zoom)
             else:
                 fut = pool.submit(_render_segment, seg, dest, settings)
             futures[fut] = seg
@@ -317,7 +323,11 @@ def _audio_args(seg: Segment, settings: RenderSettings, input_index: int) -> tup
 
 
 def _render_segment_reframe(
-    seg: Segment, dest: Path, settings: RenderSettings, camera: CameraPath
+    seg: Segment,
+    dest: Path,
+    settings: RenderSettings,
+    camera: CameraPath,
+    zoom: Callable[[float], float] | None = None,
 ) -> Path:
     """Passada 1 com reenquadramento: FFmpeg decodifica → OpenCV recorta → FFmpeg codifica.
 
@@ -325,10 +335,15 @@ def _render_segment_reframe(
     seek preciso do caminho sem reenquadramento); cada frame k corresponde a
     t_src = inicio + k/fps, e a janela vem de `camera.window(t_src)`. O resultado
     tem o mesmo contrato de `_render_segment`: N frames + N/fps s de PCM.
+
+    Com `zoom`, a escala do frame k é `zoom(t_out + k/fps)`; num trecho que tem
+    zoom, todos os frames usam a janela fracionária (sem salto na entrada do zoom).
     """
     ow, oh, fps = settings.width, settings.height, settings.fps
     sw, sh = camera.largura, camera.altura
     n = seg.frames
+    escalas = [zoom(seg.t_out + k / fps) if zoom else 1.0 for k in range(n)]
+    com_zoom = any(e > 1.0 + 1e-9 for e in escalas)
     frame_bytes = sw * sh * 3
 
     dec_cmd = [*FFMPEG_BASE, "-ss", f"{seg.inicio:.6f}", "-i", str(seg.arquivo)]
@@ -372,11 +387,13 @@ def _render_segment_reframe(
                 elif ultimo is None:
                     raise RenderError(f"nenhum frame decodificado em {what}")
                 # (fim do arquivo antes do fim do trecho: repete o último frame)
-                x, y, cw, ch = camera.window(seg.inicio + k / fps)
-                recorte = ultimo[y : y + ch, x : x + cw]
-                # ampliar com bicúbica (+5 dB PSNR que a linear, ~0,5 ms/frame a mais)
-                interp = cv2.INTER_AREA if cw > ow else cv2.INTER_CUBIC
-                enc.stdin.write(cv2.resize(recorte, (ow, oh), interpolation=interp).tobytes())
+                t_src = seg.inicio + k / fps
+                if com_zoom:
+                    quadro = _crop_subpixel(ultimo, camera.window_f(t_src, escalas[k]), ow, oh)
+                else:
+                    x, y, cw, ch = camera.window(t_src)
+                    quadro = _crop(ultimo, x, y, cw, ch, ow, oh)
+                enc.stdin.write(quadro.tobytes())
             enc.stdin.close()
         except BrokenPipeError:
             pass  # o encoder morreu; o erro dele é relatado abaixo
@@ -395,6 +412,37 @@ def _render_segment_reframe(
                 f"FFmpeg falhou ao codificar {what}:\n" + "\n".join(tail[-STDERR_TAIL_LINES:])
             )
     return dest
+
+
+def _crop(frame: np.ndarray, x: int, y: int, cw: int, ch: int, ow: int, oh: int) -> np.ndarray:
+    recorte = frame[y : y + ch, x : x + cw]
+    # ampliar com bicúbica (+5 dB PSNR que a linear, ~0,5 ms/frame a mais)
+    interp = cv2.INTER_AREA if cw > ow else cv2.INTER_CUBIC
+    return cv2.resize(recorte, (ow, oh), interpolation=interp)
+
+
+def _crop_subpixel(
+    frame: np.ndarray, janela: tuple[float, float, float, float], ow: int, oh: int
+) -> np.ndarray:
+    """Recorta a janela fracionária (x, y, w, h) e a leva para ow x oh.
+
+    Ampliação: uma transformação afim bicúbica com a posição exata (sem tremor).
+    Redução (fonte grande): recorte inteiro + INTER_AREA, sem serrilhado; aí o erro
+    de arredondamento é menor que 1 px da saída.
+    """
+    x, y, w, h = janela
+    if w > ow:
+        xi, yi = int(round(x)), int(round(y))
+        return _crop(frame, xi, yi, int(round(w)), int(round(h)), ow, oh)
+    sx, sy = ow / w, oh / h
+    # centro de pixel: saída (u+0,5)/s = entrada (x' - x + 0,5)
+    m = np.array(
+        [[sx, 0.0, -x * sx + 0.5 * (sx - 1)], [0.0, sy, -y * sy + 0.5 * (sy - 1)]],
+        dtype=np.float64,
+    )
+    return cv2.warpAffine(
+        frame, m, (ow, oh), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+    )
 
 
 # ---------------------------------------------------------- concatenação

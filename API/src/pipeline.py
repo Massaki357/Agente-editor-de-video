@@ -5,8 +5,8 @@ Usado pela API (`src.api`) e pela linha de comando:
     python -m src.pipeline ../samples/ -o ../output/final.mp4
     python -m src.pipeline 2.mp4 1.mp4 -o ../output/final.mp4   # ordem dada
 
-As próximas etapas (reenquadramento, legendas, imagens, zooms) entram em
-`render_project` como passos adicionais (6: 9:16, 7: legendas, 8: imagens).
+Os passos de `render_project`: cortes, rosto e reenquadramento 9:16 (Etapa 6),
+legendas (7), plano criativo com imagens (8) e zooms no rosto (9), render.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from src.cuts import RESTO_MAX, CutParams, TimeMap, apply_cuts, visible_words  #
 from src.face import FaceTrack, track_faces
 from src.images import ImageParams, PlanoImagens, build_overlays, plan_images, timeline_signature
 from src.project import Project
-from src.reframe import CameraPath, camera_path
+from src.reframe import CameraPath, ZoomParams, camera_path, plan_zooms, zoom_curve
 from src.transcribe import transcribe_clip
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,8 @@ class PipelineOptions(BaseModel):
     imagens: bool = True  # imagens sobre a fala (LLM escolhe as palavras; precisa de chave)
     sticker: bool = False  # recorta o fundo das imagens (rembg; 1º uso baixa o modelo)
     parametros_imagens: ImageParams = ImageParams()
+    zooms: bool = True  # zooms no rosto em momentos de ênfase (LLM); só com `reenquadrar`
+    parametros_zoom: ZoomParams = ZoomParams()
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
@@ -66,6 +68,7 @@ class PipelineResult(BaseModel):
     duracao_original: float
     tempos: dict[str, float]
     imagens: int = 0  # imagens que entraram no vídeo
+    zooms: int = 0  # zooms que entraram no vídeo
     plano: PlanoImagens | None = None  # plano usado (para salvar no projeto)
 
     @property
@@ -127,10 +130,14 @@ def image_plan(
 ) -> PlanoImagens:
     """O plano salvo, se ainda vale para os trechos atuais; senão, um novo (LLM em cache)."""
     if plano is not None and plano.assinatura == timeline_signature(project):
-        log.info("Usando o plano de imagens salvo (%d itens), sem chamar o LLM.", len(plano.itens))
+        log.info(
+            "Usando o plano criativo salvo (%d imagens, %d zooms), sem chamar o LLM.",
+            len(plano.itens),
+            len(plano.zooms),
+        )
         return plano
     if plano is not None:
-        log.info("Os trechos mudaram desde o plano de imagens salvo: refazendo o plano.")
+        log.info("Os trechos mudaram desde o plano criativo salvo: refazendo o plano.")
     on_step("imagens", 0.0)
     novo = plan_images(
         project,
@@ -150,7 +157,7 @@ def render_project(
 ) -> PipelineResult:
     """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final.
 
-    `plano`: plano de imagens salvo (preview aprovado); reaproveitado se ainda valer.
+    `plano`: plano criativo salvo (preview aprovado); reaproveitado se ainda valer.
     """
     from src.clips import probe_clip
     from src.render import render_timeline
@@ -168,6 +175,7 @@ def render_project(
 
     cameras: dict[int, CameraPath] | None = None
     tracks: dict[int, FaceTrack | None] = {}
+    usa_zoom = options.zooms and options.reenquadrar  # zoom é a janela 9:16 menor
     if options.reenquadrar:
         size = (settings.output_width, settings.output_height)
     else:  # o render usa o tamanho do 1º clipe com trechos
@@ -178,7 +186,7 @@ def render_project(
         t0 = time.perf_counter()
         tracks = face_tracks(project, on_step)
         if options.reenquadrar:
-            cameras = reframe_cameras(project, tracks)
+            cameras = reframe_cameras(project, tracks, options.parametros_zoom)
         tempos["rosto"] = time.perf_counter() - t0
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -192,18 +200,32 @@ def render_project(
     with tempfile.TemporaryDirectory(prefix="imagens_") as tmp_imagens:
         overlays = []
         plano_usado = None
-        if options.imagens:
+        zoom = None
+        n_zooms = 0
+        if options.imagens or usa_zoom:
             t0 = time.perf_counter()
             plano_usado = image_plan(project, options, plano, on_step)
-            overlays = build_overlays(
-                plano_usado,
-                size,
-                estilo.box(size) if legendas is not None else None,
-                face_boxes_fn(project, tracks, cameras, size),
-                Path(tmp_imagens),
-                sticker=options.sticker,
-            )
-            tempos["imagens"] = time.perf_counter() - t0
+            if usa_zoom and cameras:
+                zooms = plan_zooms(
+                    plano_usado.zoom_intervals(),
+                    TimeMap(timeline).to_src,
+                    cameras,
+                    options.parametros_zoom,
+                    settings.output_fps,
+                )
+                n_zooms = len(zooms)
+                zoom = zoom_curve(zooms) if zooms else None
+                log.info("Zooms: %d de %d do plano", n_zooms, len(plano_usado.zoom_intervals()))
+            if options.imagens:
+                overlays = build_overlays(
+                    plano_usado,
+                    size,
+                    estilo.box(size) if legendas is not None else None,
+                    face_boxes_fn(project, tracks, cameras, size, zoom=zoom),
+                    Path(tmp_imagens),
+                    sticker=options.sticker,
+                )
+            tempos["plano criativo"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         render_timeline(
@@ -216,6 +238,7 @@ def render_project(
             cameras=cameras,
             legendas=legendas,
             overlays=overlays,
+            zoom=zoom,
         )
         tempos["render"] = time.perf_counter() - t0
 
@@ -225,6 +248,7 @@ def render_project(
         duracao_original=sum(c.meta.duracao for c in timeline.clipes if c.meta),
         tempos=tempos,
         imagens=len(overlays),
+        zooms=n_zooms,
         plano=plano_usado,
     )
     log.info(
@@ -283,7 +307,9 @@ def face_tracks(project: Project, on_step: StepCallback = _noop) -> dict[int, Fa
 
 
 def reframe_cameras(
-    project: Project, tracks: dict[int, FaceTrack | None] | None = None
+    project: Project,
+    tracks: dict[int, FaceTrack | None] | None = None,
+    zoom: ZoomParams | None = None,
 ) -> dict[int, CameraPath]:
     """Caminho da janela 9:16 de cada clipe que tem trechos."""
     from src.clips import probe_clip
@@ -294,7 +320,7 @@ def reframe_cameras(
     for i, track in tracks.items():
         clip = project.timeline.clipes[i]
         meta = clip.meta or probe_clip(clip.arquivo)
-        cameras[i] = camera_path(track, meta.largura, meta.altura)
+        cameras[i] = camera_path(track, meta.largura, meta.altura, zoom=zoom)
     return cameras
 
 
@@ -304,16 +330,21 @@ def face_boxes_fn(
     cameras: dict[int, CameraPath] | None,
     size: tuple[int, int],
     passo: float = 0.1,
+    zoom: Callable[[float], float] | None = None,
 ):
-    """(t0, t1) em t_out → caixas do rosto real na saída (para as imagens desviarem)."""
+    """(t0, t1) em t_out → caixas do rosto real na saída (para as imagens desviarem).
+
+    Com `zoom` (Etapa 9), a caixa é a do rosto já ampliado naquele instante.
+    """
     from src.clips import probe_clip
 
     tm = TimeMap(project.timeline)
     ow, oh = size
 
-    def para_saida(clip: int, caixa, t_src: float) -> tuple[int, int, int, int]:
+    def para_saida(clip: int, caixa, t_src: float, t_out: float) -> tuple[int, int, int, int]:
         if cameras is not None and clip in cameras:
-            cx, cy, w, h = cameras[clip].to_output(caixa, t_src, size)
+            escala = zoom(t_out) if zoom is not None else 1.0
+            cx, cy, w, h = cameras[clip].to_output(caixa, t_src, size, escala)
         else:  # sem reenquadrar: o quadro inteiro com letterbox no tamanho de saída
             c = project.timeline.clipes[clip]
             meta = c.meta or probe_clip(c.arquivo)
@@ -333,7 +364,7 @@ def face_boxes_fn(
             track = tracks.get(clip)
             caixa = track.box_at(t_src) if track is not None else None
             if caixa is not None:
-                resultado.append(para_saida(clip, caixa, t_src))
+                resultado.append(para_saida(clip, caixa, t_src, t))
         return resultado
 
     return caixas
@@ -348,6 +379,7 @@ def run(
     reenquadrar: bool = True,
     legendas: bool = True,
     imagens: bool = True,
+    zooms: bool = True,
     sticker: bool = False,
     params: CutParams | None = None,
 ) -> Project:
@@ -362,6 +394,7 @@ def run(
         reenquadrar=reenquadrar,
         legendas=legendas,
         imagens=imagens,
+        zooms=zooms,
         sticker=sticker,
         min_silencio=params.min_silencio,
         margem=params.margem,
@@ -387,6 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--sem-legendas", action="store_true", help="não queima legendas")
     parser.add_argument("--sem-imagens", action="store_true", help="não coloca imagens")
+    parser.add_argument("--sem-zooms", action="store_true", help="sem zooms no rosto")
     parser.add_argument("--sticker", action="store_true", help="imagens sem fundo (rembg)")
     parser.add_argument("--min-silencio", type=float, default=CutParams().min_silencio)
     parser.add_argument("--margem", type=float, default=CutParams().margem)
@@ -408,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         reenquadrar=not args.sem_reenquadrar,
         legendas=not args.sem_legendas,
         imagens=not args.sem_imagens,
+        zooms=not args.sem_zooms,
         sticker=args.sticker,
         params=params,
     )

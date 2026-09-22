@@ -1,4 +1,4 @@
-"""Imagens sobre a fala: plano (LLM), busca em bancos de fotos e posicionamento.
+"""Plano criativo: imagens sobre a fala (Etapa 8) e zooms no rosto (Etapa 9).
 
 Divisão de responsabilidades (princípio central do etapas.md):
 - O **LLM** só escolhe *quais palavras* ganham imagem e a *query* de busca (em
@@ -8,7 +8,11 @@ Divisão de responsabilidades (princípio central do etapas.md):
   1080x1920; descarta as que cruzam a caixa real do rosto (Etapa 5) durante o
   intervalo ou a caixa da legenda (Etapa 7) e usa a maior que sobra.
 
-O plano (`PlanoImagens`) é salvo no projeto; trocar a imagem escolhida, mudar a
+Zooms: o LLM aponta a palavra de ênfase e a duração; o código valida (1 a cada 8 s,
+1–2,5 s, dentro do clipe: nunca atravessa emenda). A geometria do zoom (escala,
+rampas, rosto sempre inteiro) fica em `reframe.py`.
+
+O plano (`PlanoImagens`, imagens + zooms) é salvo no projeto; trocar a imagem escolhida, mudar a
 query ou desativar um item não chama o LLM de novo. A `assinatura` do plano muda
 quando os trechos mudam; aí o plano precisa ser refeito (o LLM tem cache).
 """
@@ -37,7 +41,7 @@ from src.transcribe import Palavra
 
 log = logging.getLogger(__name__)
 
-PLANO_VERSION = 1
+PLANO_VERSION = 2  # 2: plano criativo (imagens + zooms)
 BUSCA_VERSION = 2  # 2: fotos horizontais
 Retangulo = tuple[int, int, int, int]  # x, y, w, h em pixels da saída
 
@@ -48,6 +52,14 @@ class ImageParams(BaseModel):
     duracao_max: float = Field(3.0, gt=0)
     antecedencia: float = Field(0.2, ge=0, description="a imagem entra antes da palavra (s)")
     candidatos: int = Field(5, ge=1, le=15, description="fotos buscadas por item (para trocar)")
+
+
+class ZoomPlanParams(BaseModel):
+    intervalo_min: float = Field(8.0, ge=0, description="s mínimos entre o início de 2 zooms")
+    duracao_min: float = Field(1.0, gt=0)
+    duracao_max: float = Field(2.5, gt=0)
+    duracao_minima: float = Field(0.8, gt=0, description="zoom encurtado pela emenda: descarta")
+    antecedencia: float = Field(0.15, ge=0, description="o zoom começa antes da palavra (s)")
 
 
 class Candidato(BaseModel):
@@ -82,9 +94,29 @@ class ItemImagem(BaseModel):
         return self.candidatos[min(self.escolhida, len(self.candidatos) - 1)]
 
 
+class ItemZoom(BaseModel):
+    id: int
+    indice: int  # índice global da palavra de ênfase
+    clipe: int
+    palavra: str
+    inicio: float  # t_out
+    duracao: float
+    ativo: bool = True
+
+    @property
+    def fim(self) -> float:
+        return self.inicio + self.duracao
+
+
 class PlanoImagens(BaseModel):
+    """Plano criativo do projeto: imagens (Etapa 8) e zooms (Etapa 9)."""
+
     assinatura: str
     itens: list[ItemImagem] = Field(default_factory=list)
+    zooms: list[ItemZoom] = Field(default_factory=list)
+
+    def zoom_intervals(self) -> list[tuple[float, float]]:
+        return [(z.inicio, z.fim) for z in self.zooms if z.ativo]
 
 
 # --------------------------------------------------------------------------- transcrição
@@ -131,39 +163,67 @@ def _norm(texto: str) -> str:
     return re.sub(r"[^a-z0-9]", "", "".join(c for c in t if not unicodedata.combining(c)))
 
 
+SugestaoImagem = tuple[int, str, str, float]  # índice, palavra, query, duração
+SugestaoZoom = tuple[int, str, float]  # índice, palavra, duração
+
+
 def suggest(
     palavras: Sequence[PalavraGlobal], settings: Settings | None = None
-) -> list[tuple[int, str, str, float]]:
-    """Sugestões brutas do LLM: (índice, palavra, query, duração). Falha → []."""
+) -> tuple[list[SugestaoImagem], list[SugestaoZoom]]:
+    """Sugestões brutas do LLM (uma chamada só): imagens e zooms. Falha → ([], [])."""
     if not palavras:
-        return []
+        return [], []
     settings = settings or get_settings()
     texto = format_global_transcript(palavras)
-    prompt = (Path(__file__).parent / "llm" / "prompts" / "plano_imagens.md").read_text(
+    prompt = (Path(__file__).parent / "llm" / "prompts" / "plano_criativo.md").read_text(
         encoding="utf-8"
     )
     key = hashlib.sha256(
         json.dumps([PLANO_VERSION, settings.llm_model, prompt, texto]).encode()
     ).hexdigest()[:40]
-    cached = read_json_cache("llm_imagens", key, cache_dir=settings.cache_dir)
+    cached = read_json_cache("llm_criativo", key, cache_dir=settings.cache_dir)
     if cached is not None:
-        return [tuple(c) for c in cached]  # type: ignore[misc]
+        imagens = [tuple(c) for c in cached["imagens"]]
+        zooms = [tuple(c) for c in cached["zooms"]]
+        return imagens, zooms  # type: ignore[return-value]
 
     from src.llm import client
-    from src.llm.schemas import PlanoImagens as PlanoLLM
+    from src.llm.schemas import PlanoCriativo
 
     try:
-        resposta = client.run_structured("plano_imagens", texto, PlanoLLM, settings=settings)
+        resposta = client.run_structured("plano_criativo", texto, PlanoCriativo, settings=settings)
     except client.LLMError as exc:
-        log.warning("Plano de imagens sem LLM (%s): nenhuma imagem.", exc)
-        return []
-    brutos = [(s.indice, s.palavra, s.query.strip(), float(s.duracao)) for s in resposta.imagens]
-    write_json_cache("llm_imagens", key, brutos, cache_dir=settings.cache_dir)
-    return brutos
+        log.warning("Plano criativo sem LLM (%s): nenhuma imagem nem zoom.", exc)
+        return [], []
+    imagens = [(s.indice, s.palavra, s.query.strip(), float(s.duracao)) for s in resposta.imagens]
+    zooms = [(z.indice, z.palavra, float(z.duracao)) for z in resposta.zooms]
+    write_json_cache(
+        "llm_criativo", key, {"imagens": imagens, "zooms": zooms}, cache_dir=settings.cache_dir
+    )
+    return imagens, zooms
+
+
+def _resolve_word(
+    indice: int, palavra: str, por_indice: Mapping[int, PalavraGlobal]
+) -> PalavraGlobal | None:
+    """A palavra que o LLM apontou; se o índice errou por pouco, procura ao redor."""
+    g = por_indice.get(indice)
+    if g is None:
+        return None
+    if not _norm(palavra) or _norm(palavra) == _norm(g.palavra.texto):
+        return g
+    return next(
+        (
+            por_indice[j]
+            for j in range(indice - 3, indice + 4)
+            if j in por_indice and _norm(por_indice[j].palavra.texto) == _norm(palavra)
+        ),
+        None,
+    )
 
 
 def validate_suggestions(
-    brutos: Sequence[tuple[int, str, str, float]],
+    brutos: Sequence[SugestaoImagem],
     palavras: Sequence[PalavraGlobal],
     tm: TimeMap,
     params: ImageParams,
@@ -173,24 +233,10 @@ def validate_suggestions(
     itens: list[ItemImagem] = []
     ultimo_inicio, ultimo_fim, ultima_query = -math.inf, -math.inf, ""
     for indice, palavra, query, duracao in sorted(brutos, key=lambda b: b[0]):
-        g = por_indice.get(indice)
+        g = _resolve_word(indice, palavra, por_indice)
         if g is None or not query:
-            log.info("Imagem descartada: índice %s inválido ou query vazia.", indice)
+            log.info("Imagem descartada: '%s' fora do índice %s ou sem query.", palavra, indice)
             continue
-        if _norm(palavra) and _norm(palavra) != _norm(g.palavra.texto):
-            # o LLM errou o índice por pouco? procura a palavra ao redor
-            vizinha = next(
-                (
-                    por_indice[j]
-                    for j in range(indice - 3, indice + 4)
-                    if j in por_indice and _norm(por_indice[j].palavra.texto) == _norm(palavra)
-                ),
-                None,
-            )
-            if vizinha is None:
-                log.info("Imagem descartada: '%s' não está no índice %s.", palavra, indice)
-                continue
-            g = vizinha
         limite = tm.clip_bounds(g.clipe)
         if limite is None:
             continue
@@ -221,27 +267,72 @@ def validate_suggestions(
     return itens
 
 
+def validate_zooms(
+    brutos: Sequence[SugestaoZoom],
+    palavras: Sequence[PalavraGlobal],
+    tm: TimeMap,
+    params: ZoomPlanParams,
+) -> list[ItemZoom]:
+    """Regras dos zooms em código: 1 a cada 8 s, 1–2,5 s, sem atravessar emendas."""
+    por_indice = {g.indice: g for g in palavras}
+    zooms: list[ItemZoom] = []
+    ultimo_inicio, ultimo_fim = -math.inf, -math.inf
+    for indice, palavra, duracao in sorted(brutos, key=lambda b: b[0]):
+        g = _resolve_word(indice, palavra, por_indice)
+        if g is None:
+            log.info("Zoom descartado: '%s' não está no índice %s.", palavra, indice)
+            continue
+        limite = tm.clip_bounds(g.clipe)
+        if limite is None:
+            continue
+        duracao = min(max(duracao, params.duracao_min), params.duracao_max)
+        inicio = max(g.palavra.inicio - params.antecedencia, limite[0])
+        fim = min(inicio + duracao, limite[1])  # nunca atravessa a emenda
+        if fim - inicio < params.duracao_minima - 1e-9:
+            log.info("Zoom descartado: '%s' perto demais do fim do clipe.", palavra)
+            continue
+        if inicio < ultimo_inicio + params.intervalo_min or inicio < ultimo_fim:
+            log.info("Zoom descartado: '%s' (densidade máxima).", palavra)
+            continue
+        zooms.append(
+            ItemZoom(
+                id=len(zooms),
+                indice=g.indice,
+                clipe=g.clipe,
+                palavra=g.palavra.texto,
+                inicio=round(inicio, 3),
+                duracao=round(fim - inicio, 3),
+            )
+        )
+        ultimo_inicio, ultimo_fim = inicio, fim
+    return zooms
+
+
 def plan_images(
     project: Project,
     transcriber: Callable[[Path], object],
     params: ImageParams | None = None,
     settings: Settings | None = None,
+    zoom_params: ZoomPlanParams | None = None,
 ) -> PlanoImagens:
-    """Plano completo: LLM + validação + candidatos de cada item (sem baixar)."""
+    """Plano completo: LLM + validação de imagens e zooms + candidatos (sem baixar)."""
     params = params or ImageParams()
     settings = settings or get_settings()
     palavras = global_words(project, transcriber)
     tm = TimeMap(project.timeline)
-    itens = validate_suggestions(suggest(palavras, settings), palavras, tm, params)
+    sug_imagens, sug_zooms = suggest(palavras, settings)
+    itens = validate_suggestions(sug_imagens, palavras, tm, params)
+    zooms = validate_zooms(sug_zooms, palavras, tm, zoom_params or ZoomPlanParams())
     for item in itens:
         item.candidatos = search_images(item.query, params.candidatos, settings)
         item.ativa = bool(item.candidatos)
     log.info(
-        "Plano de imagens: %d item(ns), %d com foto",
+        "Plano criativo: %d imagem(ns), %d com foto; %d zoom(s)",
         len(itens),
         sum(1 for i in itens if i.ativa),
+        len(zooms),
     )
-    return PlanoImagens(assinatura=timeline_signature(project), itens=itens)
+    return PlanoImagens(assinatura=timeline_signature(project), itens=itens, zooms=zooms)
 
 
 # --------------------------------------------------------------------------- busca e download

@@ -31,6 +31,14 @@ export interface ImageParams {
   candidatos: number
 }
 
+/** Espelha `ZoomParams` (API/src/reframe.py). */
+export interface ZoomParams {
+  /** zoom máximo, 1.0–1.6 (1.15 = 15% mais perto) */
+  escala: number
+  margem_rosto: number
+  altura_rosto: number
+}
+
 export interface PipelineOptions {
   cortes: boolean
   cortes_fala: boolean
@@ -40,6 +48,9 @@ export interface PipelineOptions {
   imagens: boolean
   sticker: boolean
   parametros_imagens: ImageParams
+  /** zooms no rosto em momentos de ênfase; só tem efeito com `reenquadrar` */
+  zooms: boolean
+  parametros_zoom: ZoomParams
   min_silencio: number
   margem: number
   ruido_db: number
@@ -143,9 +154,22 @@ export interface ItemImagem {
   ativa: boolean
 }
 
+/** Espelha `ItemZoom` (API/src/images.py). Tempos em segundos do vídeo final. */
+export interface ItemZoom {
+  id: number
+  indice: number
+  clipe: number
+  palavra: string
+  inicio: number
+  duracao: number
+  ativo: boolean
+}
+
+/** Plano criativo: imagens + zooms no rosto. */
 export interface PlanoImagens {
   assinatura: string
   itens: ItemImagem[]
+  zooms: ItemZoom[]
 }
 
 /** Espelha `PlanoOut` (API/src/api/schemas.py). */
@@ -184,7 +208,7 @@ export interface Job {
 const NOMES_JOB: Record<string, string> = {
   transcrever: 'Transcrever',
   rosto: 'Rastrear rosto',
-  imagens: 'Sugerir imagens',
+  imagens: 'Sugerir imagens e zooms',
   gerar: 'Gerar vídeo',
 }
 
@@ -289,6 +313,8 @@ export const api = {
   imagens: (id: string) => request<PlanoOut>('GET', `/projects/${enc(id)}/imagens`),
   editImagem: (id: string, itemId: number, mudanca: ImagemEdit) =>
     request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/${itemId}`, mudanca),
+  setZoomActive: (id: string, zoomId: number, ativo: boolean) =>
+    request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/zooms/${zoomId}`, { ativo }),
   fileUrl: (id: string, nome: string) => `${BASE}/projects/${enc(id)}/files/${enc(nome)}`,
 
   createJob: (id: string, tipo: JobTipo, opcoes?: PipelineOptions) =>

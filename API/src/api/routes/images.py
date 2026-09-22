@@ -1,11 +1,11 @@
-"""Preview das imagens sobre a fala: ver e ajustar o plano antes do render."""
+"""Preview do plano criativo (imagens e zooms): ver e ajustar antes do render."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
 from src.api.deps import Jobs, Store, ensure_idle, ensure_project
-from src.api.schemas import ImagemEdit, PlanoOut
+from src.api.schemas import ImagemEdit, PlanoOut, ZoomEdit
 from src.images import load_plan, save_plan, search_images, timeline_signature
 
 router = APIRouter(prefix="/projects/{pid}/imagens", tags=["imagens"])
@@ -15,7 +15,7 @@ def _plano(store, pid: str):
     ensure_project(store, pid)
     plano = load_plan(store.plan_path(pid))
     if plano is None:
-        raise HTTPException(404, "sem plano de imagens (rode o job 'imagens')")
+        raise HTTPException(404, "sem plano criativo (rode o job 'imagens')")
     return plano
 
 
@@ -52,6 +52,21 @@ def edit_item(pid: str, item_id: int, body: ImagemEdit, store: Store, jobs: Jobs
             if body.ativa and not item.candidatos:
                 raise HTTPException(422, "o item não tem foto; mude a busca")
             item.ativa = body.ativa
+        save_plan(plano, store.plan_path(pid))
+        valido = plano.assinatura == timeline_signature(store.load(pid))
+        return PlanoOut(valido=valido, plano=plano)
+
+
+@router.patch("/zooms/{zoom_id}", response_model=PlanoOut)
+def edit_zoom(pid: str, zoom_id: int, body: ZoomEdit, store: Store, jobs: Jobs) -> PlanoOut:
+    """Liga/desliga um zoom no rosto do plano (sem LLM)."""
+    with store.lock(pid):
+        ensure_idle(jobs, pid)
+        plano = _plano(store, pid)
+        zoom = next((z for z in plano.zooms if z.id == zoom_id), None)
+        if zoom is None:
+            raise HTTPException(404, f"zoom {zoom_id} não existe no plano")
+        zoom.ativo = body.ativo
         save_plan(plano, store.plan_path(pid))
         valido = plano.assinatura == timeline_signature(store.load(pid))
         return PlanoOut(valido=valido, plano=plano)

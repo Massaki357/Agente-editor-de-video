@@ -35,7 +35,16 @@ class ImagemSugerida(BaseModel):
     duracao: float = Field(description="segundos na tela, entre 1.2 e 3.0")
 
 
-class PlanoImagens(BaseModel):
-    """Resposta do prompt `plano_imagens`: lista vazia quando nada merece imagem."""
+class ZoomSugerido(BaseModel):
+    """Um zoom no rosto para dar ênfase a um momento forte da fala."""
+
+    indice: int = Field(description="índice (global) da palavra em que o zoom começa")
+    palavra: str = Field(description="a palavra desse índice, copiada da transcrição")
+    duracao: float = Field(description="segundos de zoom, entre 1.0 e 2.5")
+
+
+class PlanoCriativo(BaseModel):
+    """Resposta do prompt `plano_criativo`: listas vazias quando nada merece destaque."""
 
     imagens: list[ImagemSugerida]
+    zooms: list[ZoomSugerido]

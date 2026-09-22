@@ -281,7 +281,7 @@ Editor de Videos/
 **Objetivo:** imagens aparecendo no momento certo e no lugar certo.
 
 **Tarefas**
-- `llm/schemas.py` e prompt `plano_imagens.md`: o LLM recebe a transcrição **global** (todos os clipes, tempos finais) e devolve `[{palavra, indice, query, duracao}]`.
+- `llm/schemas.py` e prompt `plano_imagens.md` (desde a Etapa 9, `plano_criativo.md`, com imagens e zooms): o LLM recebe a transcrição **global** (todos os clipes, tempos finais) e devolve `[{palavra, indice, query, duracao}]`.
   - Limite de densidade: no máximo 1 imagem a cada 3 a 5 s, só para substantivos concretos, sem repetir a mesma imagem em sequência.
   - Queries em inglês (melhor resultado nas APIs de stock).
 - `images.py`:
@@ -366,6 +366,6 @@ Editor de Videos/
 - [x] Etapa 6: Reenquadramento vertical
 - [x] Etapa 7: Legendas
 - [x] Etapa 8: Imagens
-- [ ] Etapa 9: Zooms
+- [x] Etapa 9: Zooms
 - [ ] Etapa 10: Interface web (design)
 - [ ] Etapa 11: Polimento

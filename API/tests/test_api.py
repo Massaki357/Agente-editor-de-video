@@ -413,7 +413,7 @@ def test_invalid_caption_color_is_rejected(client, video_dir):
 # ------------------------------------------------------------------ Etapa 8: imagens
 
 
-def _fake_images(monkeypatch, tmp_path):
+def _fake_images(monkeypatch, tmp_path, zooms=False):
     """LLM de imagens e busca falsos; conta as chamadas ao LLM."""
     from PIL import Image
 
@@ -423,7 +423,10 @@ def _fake_images(monkeypatch, tmp_path):
 
     def suggest(palavras, settings=None):
         chamadas["llm"] += 1
-        return [(0, palavras[0].palavra.texto, "fruit basket", 2.0)] if palavras else []
+        if not palavras:
+            return [], []
+        zoom = [(1, palavras[1].palavra.texto, 1.5)] if zooms and len(palavras) > 1 else []
+        return [(0, palavras[0].palavra.texto, "fruit basket", 2.0)], zoom
 
     def busca(query, n=5, settings=None):
         return [
@@ -451,7 +454,7 @@ def test_image_preview_edit_and_render_without_calling_the_llm_again(client, tmp
         client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"]
     )
     assert job["status"] == "concluido", job
-    assert job["resultado"] == {"itens": 1, "com_foto": 1}
+    assert job["resultado"] == {"itens": 1, "com_foto": 1, "zooms": 0}
     plano = client.get(f"/api/projects/{pid}/imagens").json()
     assert plano["valido"] is True
     (item,) = plano["plano"]["itens"]
@@ -478,7 +481,7 @@ def test_image_preview_edit_and_render_without_calling_the_llm_again(client, tmp
     assert job["status"] == "concluido", job
     assert job["resultado"]["imagens"] == 1
     assert chamadas["llm"] == 1  # o render usou o plano salvo
-    assert any("plano de imagens salvo" in linha for linha in job["log"])
+    assert any("plano criativo salvo" in linha for linha in job["log"])
 
 
 def test_image_plan_edit_is_blocked_during_a_job(client, tmp_path, monkeypatch):
@@ -513,3 +516,55 @@ def test_new_query_keeps_an_item_the_user_turned_off(client, tmp_path, monkeypat
     client.patch(f"/api/projects/{pid}/imagens/0", json={"ativa": False})
     r = client.patch(f"/api/projects/{pid}/imagens/0", json={"query": "green apple"})
     assert r.json()["plano"]["itens"][0]["ativa"] is False
+
+
+def test_zoom_plan_can_be_toggled_and_render_runs_with_zooms(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    chamadas = _fake_images(monkeypatch, tmp_path, zooms=True)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    job = esperar(
+        client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"]
+    )
+    assert job["resultado"]["zooms"] == 1
+    (zoom,) = client.get(f"/api/projects/{pid}/imagens").json()["plano"]["zooms"]
+    assert zoom["ativo"] is True and 0.8 <= zoom["duracao"] <= 2.5
+
+    r = client.patch(f"/api/projects/{pid}/imagens/zooms/{zoom['id']}", json={"ativo": False})
+    assert r.status_code == 200 and r.json()["plano"]["zooms"][0]["ativo"] is False
+    assert (
+        client.patch(f"/api/projects/{pid}/imagens/zooms/9", json={"ativo": True}).status_code
+        == 404
+    )
+    r = client.patch(f"/api/projects/{pid}/imagens/zooms/{zoom['id']}", json={"ativo": True})
+    assert r.json()["plano"]["zooms"][0]["ativo"] is True
+
+    job = esperar(
+        client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).json()["id"]
+    )
+    assert job["status"] == "concluido", job
+    # sem rosto detectado, o zoom segue o enquadramento da câmera
+    assert job["resultado"]["zooms"] == 1
+    assert chamadas["llm"] == 1
+
+
+def test_zoom_edit_is_blocked_during_a_job(client, tmp_path, monkeypatch):
+    fake_whisper(monkeypatch)
+    _fake_images(monkeypatch, tmp_path, zooms=True)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    esperar(client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "imagens"}).json()["id"])
+
+    def lento(store, job, ctx):
+        for k in range(100):
+            ctx.step("lento", k / 100)
+            time.sleep(0.02)
+        return {}
+
+    monkeypatch.setattr(tasks, "gerar", lento)
+    jid = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).json()["id"]
+    time.sleep(0.2)
+    r = client.patch(f"/api/projects/{pid}/imagens/zooms/0", json={"ativo": False})
+    assert r.status_code == 409
+    client.post(f"/api/jobs/{jid}/cancel")
+    esperar(client, jid)

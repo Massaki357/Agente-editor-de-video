@@ -24,8 +24,7 @@ from src.images import (
     validate_suggestions,
 )
 from src.llm import client
-from src.llm.schemas import ImagemSugerida
-from src.llm.schemas import PlanoImagens as PlanoLLM
+from src.llm.schemas import ImagemSugerida, PlanoCriativo, ZoomSugerido
 from src.project import Clip, Timeline
 from src.transcribe import Palavra
 
@@ -116,10 +115,13 @@ def test_wrong_index_is_fixed_to_a_nearby_matching_word_or_dropped():
 # ------------------------------------------------------------------ LLM
 
 
-def fake_llm(monkeypatch, sugestoes, calls):
+def fake_llm(monkeypatch, sugestoes, calls, zooms=()):
     def run(prompt_name, texto, schema, settings=None, **kw):
         calls.append((prompt_name, texto))
-        return PlanoLLM(imagens=[ImagemSugerida(**s) for s in sugestoes])
+        return PlanoCriativo(
+            imagens=[ImagemSugerida(**s) for s in sugestoes],
+            zooms=[ZoomSugerido(**z) for z in zooms],
+        )
 
     monkeypatch.setattr(client, "run_structured", run)
 
@@ -127,17 +129,21 @@ def fake_llm(monkeypatch, sugestoes, calls):
 def test_llm_gets_the_global_transcript_and_result_is_cached(monkeypatch):
     calls: list = []
     fake_llm(
-        monkeypatch, [{"indice": 0, "palavra": "café", "query": "coffee", "duracao": 2}], calls
+        monkeypatch,
+        [{"indice": 0, "palavra": "café", "query": "coffee", "duracao": 2}],
+        calls,
+        zooms=[{"indice": 5, "palavra": "gato", "duracao": 1.5}],
     )
-    assert suggest(PALAVRAS) == [(0, "café", "coffee", 2.0)]
-    assert suggest(PALAVRAS) == [(0, "café", "coffee", 2.0)]
-    assert len(calls) == 1 and calls[0][0] == "plano_imagens"
+    esperado = ([(0, "café", "coffee", 2.0)], [(5, "gato", 1.5)])
+    assert suggest(PALAVRAS) == esperado
+    assert suggest(PALAVRAS) == esperado  # cache: uma chamada só para imagens e zooms
+    assert len(calls) == 1 and calls[0][0] == "plano_criativo"
     linhas = calls[0][1].splitlines()
     assert linhas[5] == "5\t12.00\tgato"  # índice global, tempo final (clipe b)
 
 
-def test_llm_failure_means_no_images():
-    assert suggest(PALAVRAS) == []  # o conftest faz o LLM falhar
+def test_llm_failure_means_no_images_nor_zooms():
+    assert suggest(PALAVRAS) == ([], [])  # o conftest faz o LLM falhar
 
 
 # ------------------------------------------------------------------ busca
@@ -286,7 +292,7 @@ def test_saved_plan_is_reused_without_calling_the_llm(monkeypatch):
 
     project.timeline.substituir_trechos(0, [(0.0, 5.0)])  # os cortes mudaram
     chamados = []
-    monkeypatch.setattr(images, "suggest", lambda *a, **k: chamados.append(1) or [])
+    monkeypatch.setattr(images, "suggest", lambda *a, **k: chamados.append(1) or ([], []))
     monkeypatch.setattr(images, "global_words", lambda *a, **k: [])
     novo = image_plan(project, PipelineOptions(), plano)
     assert chamados == [1] and novo.assinatura != assinatura

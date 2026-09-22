@@ -67,7 +67,7 @@ def rosto(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
 
 
 def imagens(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
-    """Preview: aplica os cortes e monta o plano de imagens (LLM + busca), sem render.
+    """Preview: aplica os cortes e monta o plano criativo (imagens e zooms), sem render.
 
     O plano fica salvo no projeto para o usuário aprovar/trocar; o `gerar` o usa.
     """
@@ -78,7 +78,11 @@ def imagens(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     plano = pipeline.image_plan(project, options, anterior, ctx.step)
     store.save(job.projeto_id, project)
     save_plan(plano, store.plan_path(job.projeto_id))
-    return {"itens": len(plano.itens), "com_foto": sum(1 for i in plano.itens if i.ativa)}
+    return {
+        "itens": len(plano.itens),
+        "com_foto": sum(1 for i in plano.itens if i.ativa),
+        "zooms": len(plano.zooms),
+    }
 
 
 def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
@@ -93,6 +97,7 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
         save_plan(result.plano, store.plan_path(job.projeto_id))
     return {
         "imagens": result.imagens,
+        "zooms": result.zooms,
         "video": VIDEO_FINAL,
         "duracao_final": round(result.duracao_final, 3),
         "duracao_original": round(result.duracao_original, 3),

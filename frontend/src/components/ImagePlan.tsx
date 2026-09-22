@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, ApiError, fmtSeg, mensagemErro, type ImagemEdit, type ItemImagem, type PlanoOut } from '../api'
+import { api, ApiError, fmtSeg, mensagemErro, type ImagemEdit, type ItemImagem, type ItemZoom, type PlanoOut } from '../api'
 import ErrorBox from './ErrorBox'
 
 interface Props {
@@ -15,6 +15,7 @@ export default function ImagePlan({ projetoId, bloqueado, versao }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState<number | null>(null) // id do item sendo alterado
+  const [salvandoZoom, setSalvandoZoom] = useState<number | null>(null) // id do zoom sendo alterado
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -51,28 +52,44 @@ export default function ImagePlan({ projetoId, bloqueado, versao }: Props) {
     }
   }
 
+  const alternarZoom = async (zoom: ItemZoom, ativo: boolean) => {
+    setSalvandoZoom(zoom.id)
+    setErro(null)
+    try {
+      setDados(await api.setZoomActive(projetoId, zoom.id, ativo))
+    } catch (e) {
+      setErro(`zoom "${zoom.palavra}": ${mensagemErro(e)}`)
+    } finally {
+      setSalvandoZoom(null)
+    }
+  }
+
   const itens = dados?.plano.itens ?? []
+  const zooms = dados?.plano.zooms ?? []
+  const zoomsAtivos = zooms.filter((z) => z.ativo).length
+  const ocupado = bloqueado || salvando !== null || salvandoZoom !== null
   const ativas = itens.filter((i) => i.ativa && i.candidatos.length > 0).length
 
   return (
     <section className="cartao">
       <div className="linha">
-        <h3>Imagens (preview)</h3>
+        <h3>Plano criativo: imagens e zooms (preview)</h3>
         <button className="link" onClick={() => void carregar()} disabled={carregando}>
           recarregar
         </button>
       </div>
       <p className="suave">
-        Trocar fotos aqui não chama o LLM de novo; depois clique em Gerar vídeo.
+        Trocar fotos ou ligar/desligar zooms aqui não chama o LLM de novo; depois clique em Gerar vídeo.
       </p>
       <ErrorBox erro={erro} onClose={() => setErro(null)} />
       {carregando && !dados && <p className="suave">carregando plano…</p>}
       {semPlano && (
-        <p className="suave">Nenhum plano de imagens ainda. Use "Sugerir imagens (preview)" ou "Gerar vídeo".</p>
+        <p className="suave">Nenhum plano criativo ainda. Use "Sugerir imagens e zooms (preview)" ou "Gerar vídeo".</p>
       )}
       {dados && !dados.valido && (
         <p className="aviso-texto">Os cortes mudaram; o próximo "Gerar vídeo" refaz o plano.</p>
       )}
+      {dados && <h4>Imagens</h4>}
       {dados && (
         <p className="suave">
           {itens.length} item(ns), {ativas} em uso
@@ -84,13 +101,63 @@ export default function ImagePlan({ projetoId, bloqueado, versao }: Props) {
           <ItemCartao
             key={item.id}
             item={item}
-            desabilitado={bloqueado || salvando !== null}
+            desabilitado={ocupado}
             salvando={salvando === item.id}
             onEditar={(m) => editar(item, m)}
           />
         ))}
       </div>
+      {dados && (
+        <ZoomLista
+          zooms={zooms}
+          ativos={zoomsAtivos}
+          desabilitado={ocupado}
+          salvandoId={salvandoZoom}
+          onAlternar={(z, ativo) => void alternarZoom(z, ativo)}
+        />
+      )}
     </section>
+  )
+}
+
+interface ZoomListaProps {
+  zooms: ItemZoom[]
+  ativos: number
+  desabilitado: boolean
+  salvandoId: number | null
+  onAlternar: (zoom: ItemZoom, ativo: boolean) => void
+}
+
+function ZoomLista({ zooms, ativos, desabilitado, salvandoId, onAlternar }: ZoomListaProps) {
+  return (
+    <>
+      <h4>Zooms no rosto</h4>
+      <p className="suave">
+        {zooms.length} zoom(s), {ativos} em uso. Só entram no vídeo com o vertical 9:16 e "zooms no rosto" ligados.
+      </p>
+      {zooms.length === 0 && <p className="suave">O LLM não sugeriu nenhum zoom.</p>}
+      {zooms.length > 0 && (
+        <ul className="zooms">
+          {zooms.map((z) => (
+            <li key={z.id} className={z.ativo ? '' : 'inativa'}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={z.ativo}
+                  disabled={desabilitado}
+                  onChange={(e) => onAlternar(z, e.target.checked)}
+                />
+                <strong>{z.palavra}</strong>
+              </label>{' '}
+              <span className="suave">
+                {fmtSeg(z.inicio)} – {fmtSeg(z.inicio + z.duracao)} · clipe {z.clipe + 1}
+              </span>
+              {salvandoId === z.id && <span className="aviso-texto"> salvando…</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   )
 }
 

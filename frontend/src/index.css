@@ -380,3 +380,21 @@ fieldset label {
   height: 100%;
   object-fit: cover;
 }
+
+/* lista de zooms no rosto (Etapa 9) */
+.zooms {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.zooms li.inativa {
+  opacity: 0.5;
+}
+.zooms label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}

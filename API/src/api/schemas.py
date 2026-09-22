@@ -114,6 +114,10 @@ class ImagemEdit(BaseModel):
     query: str | None = Field(None, min_length=2, max_length=80, description="nova busca")
 
 
+class ZoomEdit(BaseModel):
+    ativo: bool
+
+
 class PlanoOut(BaseModel):
     valido: bool = Field(description="False se os trechos mudaram desde o plano")
     plano: PlanoImagens

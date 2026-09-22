@@ -37,6 +37,8 @@ const FALLBACK: PipelineOptions = {
     antecedencia: 0.2,
     candidatos: 5,
   },
+  zooms: true,
+  parametros_zoom: { escala: 1.15, margem_rosto: 0.35, altura_rosto: 0.4 },
   min_silencio: 0.4,
   margem: 0.08,
   ruido_db: -35,
@@ -87,6 +89,32 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
           />
           vertical 9:16 (1080x1920) seguindo o rosto
         </label>
+        <label title={op.reenquadrar ? undefined : 'só funciona com o vertical 9:16 ligado'}>
+          <input
+            type="checkbox"
+            checked={op.zooms && op.reenquadrar}
+            disabled={!op.reenquadrar}
+            onChange={(e) => setOp({ ...op, zooms: e.target.checked })}
+          />
+          zooms no rosto em momentos de ênfase (LLM)
+        </label>
+        {op.zooms && op.reenquadrar && (
+          <label>
+            escala do zoom
+            <input
+              type="number"
+              min="1"
+              max="1.6"
+              step="0.05"
+              value={op.parametros_zoom.escala}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                const escala = e.target.value === '' || Number.isNaN(v) ? 1.15 : Math.min(1.6, Math.max(1, v))
+                setOp({ ...op, parametros_zoom: { ...op.parametros_zoom, escala } })
+              }}
+            />
+          </label>
+        )}
         <label>
           <input type="checkbox" checked={op.legendas} onChange={(e) => setOp({ ...op, legendas: e.target.checked })} />
           legendas palavra por palavra
@@ -151,8 +179,8 @@ export default function Actions({ padrao, bloqueado, semClipes, onRodar }: Props
           <button className="primario" onClick={() => onRodar('gerar', op)}>
             Gerar vídeo
           </button>
-          <button onClick={() => onRodar('imagens', op)} title="aplica os cortes e monta o plano de imagens, sem render">
-            Sugerir imagens (preview)
+          <button onClick={() => onRodar('imagens', op)} title="aplica os cortes e monta o plano criativo (imagens e zooms), sem render">
+            Sugerir imagens e zooms (preview)
           </button>
           {padrao && (
             <button className="link" onClick={() => setOp(padrao)}>
