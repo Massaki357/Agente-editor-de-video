@@ -21,6 +21,7 @@ dependencies = [
     "rembg[cpu]>=2.0.60",
     "fastapi[standard]>=0.115",
     "fonttools>=4.40",
+    "noisereduce>=3.0",
 ]
 
 [project.optional-dependencies]

@@ -13,6 +13,14 @@ def isolated_cache(tmp_path_factory, monkeypatch):
     cache_dir = tmp_path_factory.mktemp("cache")
     monkeypatch.setenv("CACHE_DIR", str(cache_dir))
     monkeypatch.setenv("DATA_DIR", str(tmp_path_factory.mktemp("data")))
+    # binário do DeepFilterNet já baixado: copia em vez de rebaixar 27 MB por teste
+    from src.audio import deepfilter
+
+    origem_df = deepfilter.binary_path()
+    if origem_df is not None and origem_df.is_file():
+        destino_df = cache_dir / "models" / origem_df.name
+        destino_df.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(origem_df, destino_df)
     # modelo de rosto já baixado: copia para o cache isolado (sem rede nos testes)
     for origem in (
         PROJECT_ROOT / ".cache" / "models" / "blaze_face_short_range.tflite",
@@ -45,6 +53,21 @@ def no_real_llm(request, monkeypatch):
         raise client.LLMError("LLM desativado nos testes unitários")
 
     monkeypatch.setattr(client, "run_structured", blocked)
+
+
+@pytest.fixture(autouse=True)
+def no_audio_download(request, monkeypatch):
+    """Teste rápido nunca baixa os 27 MB do DeepFilterNet (só os de integração)."""
+    if request.node.get_closest_marker("integration"):
+        return
+    from src.audio import deepfilter
+
+    original = deepfilter.ensure_binary
+
+    def sem_rede(settings=None, baixar=True):
+        return original(settings, baixar=False)
+
+    monkeypatch.setattr(deepfilter, "ensure_binary", sem_rede)
 
 
 @pytest.fixture(autouse=True)

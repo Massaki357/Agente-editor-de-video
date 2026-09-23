@@ -41,6 +41,10 @@ O plano, as decisões fixas e o checklist ficam em `etapas.md`, que é a fonte d
   - O BlazeFace não enxerga rostos de tamanho normal num quadro 16:9 inteiro; `face.square_crops` resolve isso detectando em recortes quadrados.
   - `FaceTrack.cx/cy/w/h` é o caminho suave da câmera (Etapas 6 e 9); `FaceTrack.box_at(t)` é a caixa real do rosto (Etapas 8 e 9).
 
+## Ferramentas novas (novas-etapas.md)
+- O `novas-etapas.md` traz cinco ferramentas em desenvolvimento (áudio, estabilização, b-roll, legendas de destaque e edição pós-render). Mesma regra: uma etapa por vez, com verificação antes de marcar.
+- Áudio (`API/src/audio/`): o DeepFilterNet roda pelo **binário oficial** baixado para `CACHE_DIR/models/` (o pacote do PyPI não tem wheel para o Python 3.12); `metrics.measure` dá piso de ruído, nível de fala e SNR, e é assim que os testes provam que a limpeza funcionou.
+
 ## Automação do Claude Code (.claude/)
 - **Hooks:**
   - bloqueiam edição de `.env`, `uv.lock`, vídeos em `samples/` e `.cache/`;

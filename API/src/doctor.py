@@ -10,6 +10,7 @@ import argparse
 import importlib.metadata
 import importlib.util
 import logging
+import platform
 import shutil
 import subprocess
 import sys
@@ -53,12 +54,17 @@ PACKAGES = [
     ("langchain-anthropic", "langchain_anthropic"),
     ("requests", "requests"),
     ("rembg", "rembg"),
+    ("noisereduce", "noisereduce"),
     ("fastapi", "fastapi"),
     ("uvicorn", "uvicorn"),
     ("pytest", "pytest"),
 ]
 
 REQUIRED_FFMPEG_FILTERS = ["ass", "silencedetect", "overlay", "afade", "concat"]
+
+# Filtros usados pelo otimizador de áudio (Parte 1): RNNoise e ruído por FFT são as
+# alternativas quando o DeepFilterNet não está disponível.
+AUDIO_FFMPEG_FILTERS = ("highpass", "loudnorm", "arnndn", "afftdn")
 
 
 def _run(cmd: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
@@ -87,11 +93,19 @@ def check_binary(name: str) -> Check:
     return Check(name, Status.OK, first_line[0] if first_line else path)
 
 
+def _ffmpeg_filters() -> set[str] | None:
+    """Nomes dos filtros do FFmpeg instalado; None se o FFmpeg não responder."""
+    try:
+        out = _run(["ffmpeg", "-hide_banner", "-filters"]).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {parts[1] for line in out.splitlines() if len(parts := line.split()) >= 2}
+
+
 def check_ffmpeg() -> list[Check]:
     checks = [check_binary("ffmpeg"), check_binary("ffprobe")]
     if checks[0].status is Status.OK:
-        out = _run(["ffmpeg", "-hide_banner", "-filters"]).stdout
-        available = {parts[1] for line in out.splitlines() if len(parts := line.split()) >= 2}
+        available = _ffmpeg_filters() or set()
         missing = [f for f in REQUIRED_FFMPEG_FILTERS if f not in available]
         checks.append(
             Check(
@@ -194,6 +208,44 @@ def check_face_model(settings: Settings) -> list[Check]:
     return [Check("Modelo de rosto", Status.WARN, "será baixado no 1º uso (~230 KB)")]
 
 
+def check_audio(settings: Settings) -> list[Check]:
+    """Otimizador de áudio: DeepFilterNet (binário) e os filtros de áudio do FFmpeg."""
+    from src.audio import deepfilter
+
+    checks: list[Check] = []
+    asset = deepfilter.asset_da_plataforma()
+    path = deepfilter.binary_path(settings)
+    if asset is None:
+        checks.append(
+            Check(
+                "DeepFilterNet",
+                Status.WARN,
+                f"sem binário para {platform.system()}/{platform.machine()}; "
+                "a limpeza cai para o RNNoise do FFmpeg ou o noisereduce",
+            )
+        )
+    elif deepfilter.available(settings):
+        checks.append(Check("DeepFilterNet", Status.OK, f"v{deepfilter.VERSAO} em {path}"))
+    else:
+        checks.append(
+            Check("DeepFilterNet", Status.WARN, f"será baixado no 1º uso (~27 MB, {asset})")
+        )
+
+    filtros = _ffmpeg_filters()
+    if filtros is None:
+        checks.append(Check("Filtros de áudio", Status.WARN, "FFmpeg indisponível para checar"))
+    else:
+        faltando = [f for f in AUDIO_FFMPEG_FILTERS if f not in filtros]
+        checks.append(
+            Check(
+                "Filtros de áudio",
+                Status.WARN if faltando else Status.OK,
+                f"faltando: {', '.join(faltando)}" if faltando else ", ".join(AUDIO_FFMPEG_FILTERS),
+            )
+        )
+    return checks
+
+
 def check_cache_dir(settings: Settings) -> list[Check]:
     try:
         settings.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -212,6 +264,7 @@ def run_checks(settings: Settings) -> list[Check]:
         ("Pacotes", check_packages),
         ("GPU", lambda: check_gpu(settings)),
         ("Chaves de API", lambda: check_keys(settings)),
+        ("Áudio", lambda: check_audio(settings)),
         ("Cache", lambda: check_cache_dir(settings)),
         ("Modelo de rosto", lambda: check_face_model(settings)),
     ]
