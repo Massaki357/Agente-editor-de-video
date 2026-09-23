@@ -46,11 +46,10 @@ src/audio/                 (dentro de API/)
 ├── __init__.py
 ├── deepfilter.py     # binário oficial do DeepFilterNet: baixar e rodar   (Etapa 0 ✔)
 ├── metrics.py         # piso de ruído, nível de fala, SNR e conversão WAV  (Etapa 0 ✔)
-├── poc.py              # prova de conceito: `python -m src.audio.poc`       (Etapa 0 ✔)
 ├── optimize.py      # cadeia highpass -> denoise -> loudnorm, com cache      (Etapa 1 ✔)
 ├── denoise.py        # DeepFilterNet -> noisereduce -> afftdn                (Etapa 1 ✔)
 ├── loudness.py        # medição e normalização (loudnorm 2 passadas)          (Etapa 1 ✔)
-└── cli.py            # ponto de entrada `python -m src.audio.optimize`
+└── cli.py            # `python -m src.audio.optimize`, barra e antes/depois  (Etapa 2 ✔)
 ```
 
 ---
@@ -94,9 +93,10 @@ src/audio/                 (dentro de API/)
 **Objetivo:** usar o otimizador sem precisar do resto do projeto.
 
 **Tarefas**
-- `audio/cli.py`: `python -m src.audio.optimize entrada.(mp3|wav|mp4) saida.wav [--aggressiveness 0.5] [--format mp3|wav]`.
+- `audio/cli.py`: `python -m src.audio.optimize entrada.(mp3|wav|mp4) saida.wav [--aggressiveness 0.5] [--format mp3|wav]`, mais `--lufs`, `--motor`, `--sem-normalizar`, `--sem-cache` e `-q`.
 - Aceita vídeo como entrada (extrai o áudio automaticamente) ou áudio puro.
-- Barra de progresso simples no terminal.
+- Barra de progresso simples no terminal (uma linha por etapa quando a saída é redirecionada) e uma tabela antes/depois no fim: fala, ruído, SNR e volume.
+- A prova de conceito da Etapa 0 (`audio/poc.py`) saiu: a CLI faz o mesmo e mais.
 
 **Critérios de aceite**
 - Funciona apontando tanto para um `.mp3` quanto para um `.mp4`.
@@ -137,7 +137,7 @@ src/audio/                 (dentro de API/)
 
 - [x] Etapa 0: Setup e prova de conceito
 - [x] Etapa 1: Cadeia básica de limpeza
-- [ ] Etapa 2: CLI standalone
+- [x] Etapa 2: CLI standalone
 - [ ] Etapa 3: Integração no pipeline do editor de vídeos
 - [ ] Etapa 4: Ajuste fino e testes
 

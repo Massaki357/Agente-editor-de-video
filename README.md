@@ -101,6 +101,7 @@ apagar à vontade, só custa refazer.
 cd API
 uv run python -m src.pipeline ../samples -o ../output/final.mp4     # pipeline completo
 uv run python -m src.pipeline v1.mp4 v2.mp4 -o saida.mp4 --sem-imagens --sem-zooms
+uv run python -m src.audio.optimize aula.mp4 limpo.wav                  # limpar o áudio
 uv run python -m src.transcribe clipe.mp4                           # só a transcrição
 uv run python -m src.face clipe.mp4 -o debug.mp4                    # rastreio de rosto
 uv run python -m src.render projeto.project.json -o final.mp4       # só o render

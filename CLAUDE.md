@@ -20,7 +20,8 @@ O plano, as decisões fixas e o checklist ficam em `etapas.md`, que é a fonte d
     - `python -m src.pipeline`: pipeline completo pela linha de comando;
     - `python -m src.transcribe`: transcrição de um clipe;
     - `python -m src.face clipe.mp4 -o debug.mp4`: rastreio de rosto com vídeo de debug;
-    - `python -m src.render`: render de um `project.json`.
+    - `python -m src.render`: render de um `project.json`;
+    - `python -m src.audio.optimize entrada saida.(wav|mp3)`: limpeza e normalização do áudio.
   - `uv add <pacote>`: adicionar dependência. Nunca edite o `uv.lock` à mão.
 - Frontend (dentro de `frontend/`): `npm install`, `npm run dev` (http://localhost:5173, com a API rodando) e `npm run build`.
 

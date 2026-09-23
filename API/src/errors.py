@@ -15,10 +15,15 @@ DOCTOR = "rode `uv run python -m src.doctor` em API/ para conferir o ambiente"
 # (padrão no texto do erro, mensagem para o usuário). A ordem importa: a 1ª que casa vence.
 _REGRAS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"não tem (trilha de )?áudio|sem trilha de áudio|no audio stream", re.I),
+        "Esse arquivo não tem trilha de áudio, então não há o que limpar. Confira se o "
+        "vídeo foi exportado com som.",
+    ),
+    (
         # o arquivo é o problema, não o FFmpeg (esta regra vem antes da dele de propósito)
         re.compile(
             r"não tem stream de vídeo|duração desconhecida|moov atom|invalid data|"
-            r"não tem áudio|formato desconhecido|codec.*not supported",
+            r"formato desconhecido|codec.*not supported",
             re.I,
         ),
         "O arquivo não parece um vídeo válido (ou está incompleto/corrompido). Abra-o num "

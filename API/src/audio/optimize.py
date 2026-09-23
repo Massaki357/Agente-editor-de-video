@@ -23,6 +23,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,13 @@ from src.config import Settings, get_settings
 log = logging.getLogger(__name__)
 
 CADEIA_VERSION = 1  # mudou a cadeia? suba isto para invalidar o cache
+
+# (etapa, fração 0..1) — a CLI usa para a barra e o pipeline (Etapa 3) para o job.
+Progresso = Callable[[str, float], None]
+
+
+def _sem_progresso(etapa: str, fracao: float) -> None:
+    pass
 
 
 class AudioParams(BaseModel):
@@ -119,11 +127,15 @@ def optimize_audio(
     *,
     settings: Settings | None = None,
     use_cache: bool = True,
+    on_step: Progresso | None = None,
 ) -> ResultadoAudio:
     """Limpa o áudio de `entrada` (vídeo ou áudio) e grava o WAV em `saida`.
 
     `params` aceita o objeto completo ou só o `aggressiveness`:
     `optimize_audio(a, b, 0.7)` é o mesmo que `AudioParams(aggressiveness=0.7)`.
+
+    `on_step(etapa, fracao)` acompanha o andamento (a CLI desenha a barra com isso) e
+    pode lançar exceção para cancelar, como o resto do projeto.
     """
     entrada, saida = Path(entrada), Path(saida)
     if not entrada.is_file():
@@ -132,6 +144,7 @@ def optimize_audio(
         params = AudioParams(aggressiveness=float(params))
     params = params or AudioParams()
     settings = settings or get_settings()
+    passo = on_step or _sem_progresso
 
     chave = cache_key(entrada, params)
     wav_cache = cache_path("audio_limpo", chave, ".wav", cache_dir=settings.cache_dir)
@@ -151,17 +164,22 @@ def optimize_audio(
                 )
             else:
                 log.info("Áudio limpo veio do cache (%s).", chave)
+                passo("cache", 1.0)
                 return resultado
 
     with tempfile.TemporaryDirectory(prefix="audio_opt_") as tmp:
         tmp = Path(tmp)
+        passo("extraindo o áudio", 0.05)
         original = metrics.to_wav(entrada, tmp / "1_original.wav")
+        passo("medindo", 0.15)
         antes = metrics.measure(original)
         lufs_antes = loudness_mod.measure(original, alvo_lufs=params.alvo_lufs).i
 
         atual = original
         if params.highpass_hz > 0:
+            passo("cortando os graves", 0.25)
             atual = _highpass(atual, tmp / "2_highpass.wav", params.highpass_hz)
+        passo("reduzindo o ruído", 0.35)
         atual, motor = denoise_mod.denoise(
             atual,
             tmp / "3_limpo.wav",
@@ -170,6 +188,7 @@ def optimize_audio(
             settings=settings,
         )
         if params.normalizar:
+            passo("normalizando o volume", 0.75)
             loudness_mod.normalize(
                 atual,
                 tmp / "4_normalizado.wav",
@@ -178,6 +197,7 @@ def optimize_audio(
             )
             atual = tmp / "4_normalizado.wav"
 
+        passo("medindo o resultado", 0.9)
         depois = metrics.measure(atual)
         lufs_depois = loudness_mod.measure(atual, alvo_lufs=params.alvo_lufs).i
         saida.parent.mkdir(parents=True, exist_ok=True)
@@ -195,6 +215,7 @@ def optimize_audio(
         lufs_depois,
         motor,
     )
+    passo("pronto", 1.0)
     return ResultadoAudio(saida, motor, antes, depois, lufs_antes, lufs_depois)
 
 
@@ -251,3 +272,11 @@ def _guardar(
         "lufs_depois": lufs_depois,
     }
     atomic_write_text(meta_cache, json.dumps(meta, indent=2))
+
+
+if __name__ == "__main__":  # `python -m src.audio.optimize entrada saida`
+    import sys
+
+    from src.audio.cli import main
+
+    sys.exit(main())

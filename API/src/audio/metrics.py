@@ -66,9 +66,22 @@ def measure(path: str | Path) -> Medidas:
     )
 
 
+def tem_audio(entrada: str | Path) -> bool:
+    """O arquivo tem alguma trilha de áudio? (erro de leitura conta como "não sei": True)"""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index"]
+    try:
+        proc = subprocess.run([*cmd, "-of", "csv=p=0", str(entrada)], capture_output=True,
+                              text=True, timeout=60)  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return True  # sem ffprobe o erro aparece depois, com a mensagem do ffmpeg
+    return proc.returncode != 0 or bool(proc.stdout.strip())
+
+
 def to_wav(entrada: str | Path, saida: str | Path, taxa: int = 48_000, canais: int = 1) -> Path:
     """Extrai/converte qualquer entrada (vídeo ou áudio) para WAV PCM 16 bits."""
     entrada, saida = Path(entrada), Path(saida)
+    if not tem_audio(entrada):
+        raise RuntimeError(f"{entrada.name} não tem trilha de áudio")
     saida.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
     cmd += ["-i", str(entrada), "-vn", "-ac", str(canais), "-ar", str(taxa)]
