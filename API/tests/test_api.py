@@ -88,6 +88,9 @@ def test_health_config_and_doctor(client):
     corpo = config.json()
     assert corpo["llm_model"] in corpo["llm_models"]  # o modelo do .env sempre é escolhível
     assert corpo["opcoes_padrao"]["llm_model"] is None
+    # a limpeza de áudio (novas-etapas, Parte 1) chega ao frontend desligada
+    assert corpo["opcoes_padrao"]["limpar_audio"] is False
+    assert corpo["opcoes_padrao"]["parametros_audio"]["aggressiveness"] == 0.5
     doctor = client.get("/api/doctor").json()
     assert {"nome", "status", "detalhe"} <= set(doctor[0])
     assert any(c["nome"] == "ffmpeg" for c in doctor)
@@ -600,3 +603,27 @@ def test_job_result_reports_llm_usage_and_cost(client, tmp_path, monkeypatch):
     assert uso["custo_usd"] == pytest.approx(2000 * 0.25e-6 + 1000 * 2.0e-6)
     assert uso["modelos"] == ["openai:gpt-5-mini"]
     assert any("LLM: 1 chamada(s)" in linha for linha in job["log"])
+
+
+def test_generate_job_with_clean_audio(client, tmp_path, monkeypatch):
+    """A opção `limpar_audio` atravessa a API e chega ao render."""
+    fake_whisper(monkeypatch)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    opcoes = {
+        "limpar_audio": True,
+        "parametros_audio": {"motor": "afftdn"},
+        "cortes_fala": False,
+        "legendas": False,
+        "imagens": False,
+        "zooms": False,
+    }
+    job = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": opcoes}).json()[
+            "id"
+        ],
+    )
+    assert job["status"] == "concluido", job
+    assert any("Áudio de" in linha for linha in job["log"])  # a cadeia de limpeza rodou
+    assert client.get(f"/api/projects/{pid}").json()["video_final_url"]

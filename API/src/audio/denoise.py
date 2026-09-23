@@ -4,7 +4,9 @@ Ordem de preferência:
 1. **DeepFilterNet** (binário oficial, `deepfilter.py`): rede neural, muito acima do resto;
 2. **noisereduce** (spectral gating, pacote Python): sem download, resultado bom em ruído
    estacionário (ventilador, chiado);
-3. **afftdn** do FFmpeg: último recurso, sempre disponível.
+3. **afftdn** do FFmpeg: último recurso, sempre disponível — mas atrasa o áudio em
+   ~25 ms (constante, medido), o que é aceitável para lip-sync e só acontece quando os
+   dois motores acima faltam.
 
 `aggressiveness` (0 a 1) é a mesma escala para quem chama: 0 não mexe no áudio, 0,5 limpa
 o suficiente para o fundo sumir sem esvaziar a sala e 1 limpa o máximo possível. No

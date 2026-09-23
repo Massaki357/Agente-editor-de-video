@@ -97,6 +97,7 @@ class Segment:
     frames: int
     t_out: float
     tem_audio: bool
+    audio: Path | None = None  # trilha alternativa (áudio limpo da Parte 1)
 
 
 @dataclass(frozen=True)
@@ -126,6 +127,7 @@ def render_timeline(
     legendas: Path | None = None,
     overlays: Sequence[Overlay] = (),
     zoom: Callable[[float], float] | None = None,
+    audios: Mapping[int, Path] | None = None,
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
 
@@ -135,6 +137,10 @@ def render_timeline(
     `cameras` (índice do clipe → caminho da janela 9:16) liga o reenquadramento:
     cada trecho é recortado pelo OpenCV e redimensionado para `size`.
     `zoom(t_out) → escala` (Etapa 9, só com `cameras`): zoom no rosto.
+    `audios` (índice do clipe → WAV): usa outra trilha de áudio no lugar da do clipe
+    (o áudio limpo da Parte 1 do novas-etapas.md). A limpeza mantém os tempos (medido:
+    deslocamento < 1 ms), mas pode encurtar o fim em algumas dezenas de ms — o `apad`
+    de cada trecho completa com silêncio.
 
     `size=None` usa o tamanho de exibição do primeiro clipe (arredondado para par).
     `work_dir` guarda os intermediários (útil para depuração); sem ele, usa uma
@@ -146,7 +152,7 @@ def render_timeline(
         raise RenderError(f"fps/sample_rate inválidos: {fps}, {sample_rate}")
 
     metas = [_clip_meta(clip.arquivo, clip.meta) for clip in timeline.clipes]
-    segments = plan_segments(timeline, metas, fps)
+    segments = plan_segments(timeline, metas, fps, audios)
     if not segments:
         raise RenderError("timeline sem trechos para renderizar")
 
@@ -184,8 +190,17 @@ def render_timeline(
     return output
 
 
-def plan_segments(timeline: Timeline, metas: list[ClipMeta], fps: int) -> list[Segment]:
-    """Trechos na grade de 1/fps (idempotente), sem os de 0 frames, com t_out."""
+def plan_segments(
+    timeline: Timeline,
+    metas: list[ClipMeta],
+    fps: int,
+    audios: Mapping[int, Path] | None = None,
+) -> list[Segment]:
+    """Trechos na grade de 1/fps (idempotente), sem os de 0 frames, com t_out.
+
+    `audios` (índice do clipe → WAV) troca a trilha de áudio daquele clipe: a limpeza
+    não desloca o áudio, então os mesmos tempos valem.
+    """
     segments: list[Segment] = []
     frames_out = 0
     for ci, (clip, meta) in enumerate(zip(timeline.clipes, metas, strict=True)):
@@ -206,6 +221,7 @@ def plan_segments(timeline: Timeline, metas: list[ClipMeta], fps: int) -> list[S
                     frames=frames,
                     t_out=frames_out / fps,
                     tem_audio=meta.tem_audio,
+                    audio=(audios or {}).get(ci),
                 )
             )
             frames_out += frames
@@ -360,7 +376,7 @@ def _audio_args(seg: Segment, settings: RenderSettings, input_index: int) -> tup
         ]
     af.append("apad")
     if seg.tem_audio:
-        entradas = ["-i", str(seg.arquivo)]
+        entradas = ["-i", str(seg.audio or seg.arquivo)]
     else:
         entradas = ["-f", "lavfi", "-i", f"anullsrc=r={sr}:cl=stereo"]
     return entradas, f"{input_index}:a:0", ",".join(af)

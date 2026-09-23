@@ -22,6 +22,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from src.audio.optimize import AudioParams, cached_audio
 from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
 from src.config import Settings, get_settings
@@ -39,6 +40,14 @@ StepCallback = Callable[[str, float], None]
 
 
 class PipelineOptions(BaseModel):
+    # Limpeza do áudio (novas-etapas.md, Parte 1). Vale para o **áudio do vídeo final**;
+    # a transcrição continua usando o áudio original, porque medir mostrou que limpar
+    # antes de transcrever piora o reconhecimento (o Whisper já treina com ruído):
+    #   3 amostras com chiado a −24 dBFS, similaridade com a transcrição do áudio limpo
+    #   sem limpeza  0,568  0,685  0,743
+    #   com limpeza  0,528  0,575  0,715   (pior nas três)
+    limpar_audio: bool = False
+    parametros_audio: AudioParams = AudioParams()
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
@@ -91,6 +100,42 @@ def build_project(entradas: list[Path]) -> Project:
     if len(entradas) == 1 and entradas[0].is_dir():
         return project_from_folder(entradas[0])
     return project_from_files(entradas)
+
+
+def audio_do_clipe(
+    clip: Path,
+    options: PipelineOptions,
+    settings: Settings | None = None,
+    on_step: StepCallback = _noop,
+) -> Path | None:
+    """WAV limpo do clipe (em cache), ou None quando a limpeza está desligada."""
+    if not options.limpar_audio:
+        return None
+    return cached_audio(
+        clip,
+        options.parametros_audio,
+        settings=settings,
+        on_step=lambda etapa, fracao: on_step(f"áudio: {etapa}", fracao),
+    )
+
+
+def audios_limpos(
+    project: Project, options: PipelineOptions, on_step: StepCallback = _noop
+) -> dict[int, Path]:
+    """Trilha limpa de cada clipe para o render (vazio se a opção está desligada)."""
+    if not options.limpar_audio:
+        return {}
+    limpos = {}
+    clipes = project.timeline.clipes
+    for i, clip in enumerate(clipes):
+        if clip.meta is not None and not clip.meta.tem_audio:
+            continue
+        on_step("áudio", i / max(len(clipes), 1))
+        caminho = audio_do_clipe(Path(clip.arquivo), options, on_step=on_step)
+        if caminho is not None:
+            limpos[i] = caminho
+    on_step("áudio", 1.0)
+    return limpos
 
 
 def transcribe_project(project: Project, on_step: StepCallback = _noop) -> None:
@@ -246,6 +291,7 @@ def render_project(
             legendas=legendas,
             overlays=overlays,
             zoom=zoom,
+            audios=audios_limpos(project, options, on_step),
         )
         tempos["render"] = time.perf_counter() - t0
 

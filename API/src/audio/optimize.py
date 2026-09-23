@@ -201,7 +201,7 @@ def optimize_audio(
         depois = metrics.measure(atual)
         lufs_depois = loudness_mod.measure(atual, alvo_lufs=params.alvo_lufs).i
         saida.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(atual, saida)
+        _copiar(atual, saida)
         if use_cache:
             _guardar(atual, wav_cache, meta_cache, motor, antes, depois, lufs_antes, lufs_depois)
 
@@ -219,6 +219,27 @@ def optimize_audio(
     return ResultadoAudio(saida, motor, antes, depois, lufs_antes, lufs_depois)
 
 
+def cached_audio(
+    entrada: str | Path,
+    params: AudioParams | None = None,
+    *,
+    settings: Settings | None = None,
+    on_step: Progresso | None = None,
+) -> Path:
+    """WAV limpo do arquivo, direto no cache (um por clipe + parâmetros).
+
+    É o que o pipeline usa: a limpeza de cada clipe é feita uma vez e reaproveitada
+    entre execuções, sem copiar o áudio para a pasta do projeto.
+    """
+    settings = settings or get_settings()
+    params = params or AudioParams()
+    destino = cache_path(
+        "audio_limpo", cache_key(Path(entrada), params), ".wav", cache_dir=settings.cache_dir
+    )
+    optimize_audio(entrada, destino, params, settings=settings, on_step=on_step)
+    return destino
+
+
 def _highpass(entrada: Path, saida: Path, corte_hz: int) -> Path:
     """Tira rumble e offset de DC antes de qualquer outra coisa."""
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
@@ -231,14 +252,21 @@ def _highpass(entrada: Path, saida: Path, corte_hz: int) -> Path:
     return saida
 
 
+def _copiar(origem: Path, destino: Path) -> None:
+    """Copia, a não ser que já sejam o mesmo arquivo (a saída pode ser o próprio cache)."""
+    if origem.resolve() == destino.resolve():
+        return
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(origem, destino)
+
+
 def _medidas(dados: dict) -> metrics.Medidas:
     return metrics.Medidas(dados["fala_db"], dados["ruido_db"], dados["pico_db"])
 
 
 def _do_cache(wav_cache: Path, meta_cache: Path, saida: Path) -> ResultadoAudio:
     meta = json.loads(meta_cache.read_text(encoding="utf-8"))
-    saida.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(wav_cache, saida)
+    _copiar(wav_cache, saida)
     return ResultadoAudio(
         caminho=saida,
         motor=meta["motor"],

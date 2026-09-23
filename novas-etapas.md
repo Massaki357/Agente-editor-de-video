@@ -23,7 +23,7 @@ Cada parte pode ser desenvolvida e usada separadamente, mas todas se encaixam no
 
 Módulo que recebe um áudio (ou o áudio extraído de um vídeo) e devolve uma versão limpa: sem ruído de fundo, sem chiado, com volume normalizado. Roda 100% local, sem LLM.
 
-**Onde entra no projeto do editor de vídeos:** como um passo opcional antes da transcrição (Etapa 2 do `etapas.md`) e/ou antes do render final. Também funciona como ferramenta independente (`python -m src.audio.optimize entrada.mp3 saida.mp3`).
+**Onde entra no projeto do editor de vídeos:** como um passo opcional sobre o **áudio do vídeo final** (a transcrição usa sempre o áudio original — ver a medição na Etapa 3). Também funciona como ferramenta independente (`python -m src.audio.optimize entrada.mp3 saida.mp3`).
 
 ---
 
@@ -49,6 +49,7 @@ src/audio/                 (dentro de API/)
 ├── optimize.py      # cadeia highpass -> denoise -> loudnorm, com cache      (Etapa 1 ✔)
 ├── denoise.py        # DeepFilterNet -> noisereduce -> afftdn                (Etapa 1 ✔)
 ├── loudness.py        # medição e normalização (loudnorm 2 passadas)          (Etapa 1 ✔)
+│                     `cached_audio` guarda um WAV por clipe (Etapa 3 ✔)
 └── cli.py            # `python -m src.audio.optimize`, barra e antes/depois  (Etapa 2 ✔)
 ```
 
@@ -108,15 +109,22 @@ src/audio/                 (dentro de API/)
 
 **Objetivo:** usar o otimizador dentro do fluxo principal, sem obrigar todo mundo a usá-lo.
 
+> **Medição mudou o desenho desta etapa (23/09/2026).** A premissa era "áudio limpo
+> transcreve melhor". Medindo com fala real + chiado e comparando com a transcrição do
+> áudio sem ruído (similaridade de palavras), limpar **piorou** o reconhecimento nas três
+> amostras: 0,568 → 0,528 · 0,685 → 0,575 · 0,743 → 0,715. O Whisper já é treinado com
+> ruído e os artefatos da limpeza atrapalham. Com o aval do usuário, a opção passou a
+> valer **só para o áudio do vídeo final**; a transcrição usa sempre o áudio original.
+
 **Tarefas**
-- Opção `limpar_audio: bool` no `project.json` e na UI (Etapa 10 do `etapas.md`).
-- Quando ligada, roda **antes da transcrição** (Etapa 2 do `etapas.md`): áudio limpo transcreve melhor e ajuda a marcar erros de fala com mais precisão.
-- O render final usa o áudio original (não o processado) por padrão, a menos que o usuário marque "usar áudio limpo no vídeo final" — assim você pode limpar só para melhorar a transcrição sem alterar o som do vídeo, se preferir.
-- Cache isolado por clipe, reaproveitado entre execuções.
+- Opção `limpar_audio: bool` no `PipelineOptions` e na UI (Etapa 10 do `etapas.md`).
+- Quando ligada, o **áudio do vídeo final** sai limpo e normalizado; a transcrição, os cortes e as legendas continuam usando o áudio original.
+- Ajustes finos (`parametros_audio`: intensidade, volume alvo, normalizar) na mesma seção da UI.
+- Cache isolado por clipe (`optimize.cached_audio`, um WAV por clipe + parâmetros), reaproveitado entre execuções.
 
 **Critérios de aceite**
 - Ligar/desligar a opção não quebra as etapas seguintes do pipeline.
-- Com a opção ligada, a transcrição de um clipe ruidoso melhora perceptivelmente (menos erros de reconhecimento) em comparação com o áudio original.
+- Com a opção ligada, o vídeo final sai com o ruído reduzido, no volume alvo, e com áudio e vídeo na mesma duração (nada desalinha).
 
 ---
 
@@ -138,7 +146,7 @@ src/audio/                 (dentro de API/)
 - [x] Etapa 0: Setup e prova de conceito
 - [x] Etapa 1: Cadeia básica de limpeza
 - [x] Etapa 2: CLI standalone
-- [ ] Etapa 3: Integração no pipeline do editor de vídeos
+- [x] Etapa 3: Integração no pipeline do editor de vídeos
 - [ ] Etapa 4: Ajuste fino e testes
 
 ---

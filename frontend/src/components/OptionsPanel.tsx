@@ -11,6 +11,15 @@ interface Props {
 
 /** Usado só enquanto GET /config não responde (o pai recria o painel com a key). */
 const FALLBACK: PipelineOptions = {
+  limpar_audio: false,
+  parametros_audio: {
+    aggressiveness: 0.5,
+    alvo_lufs: -16,
+    true_peak: -1.5,
+    highpass_hz: 80,
+    normalizar: true,
+    motor: null,
+  },
   cortes: true,
   cortes_fala: true,
   reenquadrar: true,
@@ -59,6 +68,8 @@ export default function OptionsPanel({ config, bloqueado, semClipes, onRodar }: 
     setOp({ ...op, estilo_legenda: { ...op.estilo_legenda, ...mudanca } })
   const num = (campo: 'min_silencio' | 'margem' | 'ruido_db') => (e: ChangeEvent<HTMLInputElement>) =>
     setOp({ ...op, [campo]: e.target.value === '' ? 0 : Number(e.target.value) })
+  const setAudio = (mudanca: Partial<PipelineOptions['parametros_audio']>) =>
+    setOp({ ...op, parametros_audio: { ...op.parametros_audio, ...mudanca } })
 
   const off = bloqueado || semClipes
   const dica = bloqueado ? DICA_BLOQUEIO : semClipes ? DICA_SEM_CLIPES : undefined
@@ -69,6 +80,65 @@ export default function OptionsPanel({ config, bloqueado, semClipes, onRodar }: 
       <h2 className="secao">Opções</h2>
 
       {dica && <p className="texto-aviso">{bloqueado ? 'Job em andamento: opções e ações travadas.' : 'Adicione clipes para liberar as ações.'}</p>}
+
+      <fieldset className="grupo" disabled={off} title={dica}>
+        <legend>Áudio</legend>
+        <label className="caixa">
+          <input
+            type="checkbox"
+            checked={op.limpar_audio}
+            onChange={(e) => setOp({ ...op, limpar_audio: e.target.checked })}
+          />
+          limpar o ruído do áudio do vídeo
+        </label>
+        <p className="suave">Vale para o áudio do vídeo final; a transcrição continua usando o áudio original.</p>
+        {op.limpar_audio && (
+          <details>
+            <summary>ajustes do áudio</summary>
+            <div className="campo">
+              <label htmlFor={`${id}-agressividade`}>intensidade da limpeza</label>
+              <input
+                id={`${id}-agressividade`}
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                value={op.parametros_audio.aggressiveness}
+                onChange={(e) => {
+                  const v = Number(e.target.value)
+                  const aggressiveness = e.target.value === '' || Number.isNaN(v) ? 0.5 : Math.min(1, Math.max(0, v))
+                  setAudio({ aggressiveness })
+                }}
+              />
+            </div>
+            <label className="caixa">
+              <input
+                type="checkbox"
+                checked={op.parametros_audio.normalizar}
+                onChange={(e) => setAudio({ normalizar: e.target.checked })}
+              />
+              ajustar o volume
+            </label>
+            {op.parametros_audio.normalizar && (
+              <div className="campo recuada">
+                <label htmlFor={`${id}-lufs`}>volume alvo (LUFS)</label>
+                <input
+                  id={`${id}-lufs`}
+                  type="number"
+                  max="0"
+                  step="1"
+                  value={op.parametros_audio.alvo_lufs}
+                  onChange={(e) => {
+                    const v = Number(e.target.value)
+                    const alvo_lufs = e.target.value === '' || Number.isNaN(v) ? -16 : Math.min(0, v)
+                    setAudio({ alvo_lufs })
+                  }}
+                />
+              </div>
+            )}
+          </details>
+        )}
+      </fieldset>
 
       <fieldset className="grupo" disabled={off} title={dica}>
         <legend>Cortes</legend>

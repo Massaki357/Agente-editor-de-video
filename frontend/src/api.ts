@@ -39,7 +39,29 @@ export interface ZoomParams {
   altura_rosto: number
 }
 
+/** Motores de redução de ruído (espelha `Motor` em API/src/audio/denoise.py). */
+export type AudioMotor = 'deepfilternet' | 'noisereduce' | 'afftdn' | 'nenhum'
+
+/** Espelha `AudioParams` (API/src/audio/optimize.py). */
+export interface AudioParams {
+  /** 0 não limpa, 1 limpa ao máximo */
+  aggressiveness: number
+  /** volume alvo em LUFS (≤ 0; -16 é o padrão das redes sociais) */
+  alvo_lufs: number
+  /** pico real máximo em dBTP (≤ 0) */
+  true_peak: number
+  /** corta abaixo disso, 0–300 Hz (0 desliga) */
+  highpass_hz: number
+  /** aplicar o loudnorm no fim */
+  normalizar: boolean
+  /** forçar um motor de denoise; `null` = o melhor disponível */
+  motor: AudioMotor | null
+}
+
 export interface PipelineOptions {
+  /** limpa o ruído do **áudio do vídeo final**; a transcrição usa o áudio original */
+  limpar_audio: boolean
+  parametros_audio: AudioParams
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean

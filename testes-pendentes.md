@@ -64,8 +64,7 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 | C10b | 10 | A escolha do **modelo do LLM** nas opções funciona no seu uso (o padrão é o do `.env`) | Nas Opções, em Cortes, escolha `openai:gpt-5` e gere; o log do job deve mostrar o modelo usado | 👀 |
 | C11 | 11 | **Rodar tudo com um comando só**: `cd frontend && npm run build` e depois `cd API && uv run python -m src.api`; abra http://127.0.0.1:8000 e use normalmente (sem o `npm run dev`) | Eu conferi que a página e a API respondem; falta você usar assim no dia a dia | 👀 |
 | C11b | 11 | **Avisos e custo**: gere um vídeo e veja se os avisos dos clipes (sem áudio, fps variável, HDR, pouco rosto) e a linha do LLM (chamadas, tokens e custo estimado) fazem sentido para você | Painel do job, depois de concluído. Os preços da tabela em `API/src/llm/pricing.py` podem estar desatualizados: confira uma fatura real se for se guiar por eles | 👀 |
-| P1-C0 | Parte 1, Etapa 0 | **Ouvir a limpeza de áudio**: compare `output/parte1_etapa0_antes.wav` com `output/parte1_etapa0_depois.wav` (mesma fala, um com o ruído da sala e outro limpo pelo DeepFilterNet). O fundo deve sumir sem a voz ficar robótica ou abafada | Fones ajudam. Medido: o ruído de fundo caiu de −77,7 dBFS para silêncio digital e a voz ficou no mesmo nível (−21,4 → −21,8 dBFS) | 👀 |
-| P1-C1 | Parte 1, Etapa 1 | **Ouvir a cadeia completa** (limpeza + volume): `output/parte1_etapa1_antes.wav` (fala baixa com ar-condicionado e zumbido de 120 Hz) contra `parte1_etapa1_depois.wav` (padrão, `aggressiveness=0,5`) e `parte1_etapa1_depois_forte.wav` (`aggressiveness=1`). Confira se o ruído sumiu, se o volume ficou bom e **se a voz não ficou robótica** — principalmente na versão forte | Medido: SNR 14 → 32,5 dB no padrão e → 67,4 dB no forte; volume −29,4 → −16,8 LUFS nos dois. Se o forte soar artificial, o padrão fica como está | 👀 |
+| P1-C3 | Parte 1, Etapa 3 | **Áudio limpo no vídeo gerado**: na interface, marque "limpar o ruído do áudio do vídeo" (grupo Áudio, no topo das opções) e gere um vídeo. Confira se o som do resultado ficou melhor que o do original e se continua **em sincronia com a boca** | Eu medi num render de teste: SNR 8,9 → 28,0 dB, volume −29,2 → −15,8 LUFS, áudio e vídeo com a mesma duração e deslocamento abaixo de 1 ms. Falta o seu ouvido no vídeo inteiro | 👀 |
 | C11c | 11 | **Mensagem de erro clara**: renomeie temporariamente sua chave no `.env` (ex.: `OPENAI_API_KEY_X=`) e gere com o LLM ligado; a mensagem deve explicar o que fazer | Depois é só desfazer o rename | 👀 |
 | C6b | 6 | O vídeo vertical 1080x1920 está bom e a fala bate com a boca no começo, no meio e no fim | Assista `output/samples_palestra_9x16.mp4`. O vídeo original já era em pé, então o enquadramento quase não se move; confira a nitidez (houve ampliação de 480 para 1080 de largura) e a sincronia | 👀 |
 
@@ -95,6 +94,10 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 ---
 
 ## Histórico
+
+### Otimizador de áudio (23/09/2026)
+
+- ✅ **P1-C0 e P1-C1: a limpeza soou bem.** O usuário ouviu os pares `output/parte1_etapa0_*.wav` (só denoise) e `output/parte1_etapa1_*.wav` (cadeia completa, padrão e `aggressiveness=1`) e aprovou: sem ruído e sem voz robótica. Os padrões ficam como estão (`aggressiveness=0,5`, alvo de −16 LUFS).
 
 ### Testes concluídos com o seu vídeo (21/09/2026)
 Vídeo: `samples/WhatsApp Video 2026-09-21 at 16.08.56.mp4`. É uma palestra filmada da plateia com o celular em pé: 69 s, 848x480 com rotação de −90°.
