@@ -42,6 +42,11 @@ class DeepFilterIndisponivel(RuntimeError):
     """Não há binário para esta plataforma, ou o download falhou."""
 
 
+# Máquina offline: o download falhou uma vez nesta sessão, não adianta tentar a cada
+# clipe (o timeout do `requests` sairia caro no pipeline). Some ao reiniciar o processo.
+_download_falhou = False
+
+
 def asset_da_plataforma() -> str | None:
     """Nome do arquivo da release para esta máquina; None se não houver."""
     return ASSETS.get((platform.system(), platform.machine()))
@@ -61,6 +66,17 @@ def available(settings: Settings | None = None) -> bool:
     """Já baixado e pronto para usar (não baixa nada)."""
     path = binary_path(settings)
     return path is not None and path.is_file() and path.stat().st_size >= TAMANHO_MIN
+
+
+def pode_usar(settings: Settings | None = None) -> bool:
+    """Vale a pena contar com o DeepFilterNet agora?
+
+    False quando a plataforma não tem binário ou quando o download já falhou nesta
+    sessão — aí a cadeia escolhe outro motor em vez de tentar baixar em cada clipe.
+    """
+    if asset_da_plataforma() is None:
+        return False
+    return available(settings) or not _download_falhou
 
 
 def ensure_binary(settings: Settings | None = None, baixar: bool = True) -> Path:
@@ -89,13 +105,21 @@ def ensure_binary(settings: Settings | None = None, baixar: bool = True) -> Path
                     saida.write(pedaco)
     except requests.RequestException as exc:
         tmp.unlink(missing_ok=True)
+        _marcar_falha()
         raise DeepFilterIndisponivel(f"falha ao baixar o DeepFilterNet ({url}): {exc}") from exc
     if tmp.stat().st_size < TAMANHO_MIN:
         tmp.unlink(missing_ok=True)
+        _marcar_falha()
         raise DeepFilterIndisponivel(f"download do DeepFilterNet veio incompleto ({url})")
     tmp.replace(path)
     path.chmod(0o755)
     return path
+
+
+def _marcar_falha() -> None:
+    global _download_falhou
+    _download_falhou = True
+    log.warning("Download do DeepFilterNet falhou; nesta sessão a limpeza usa outro motor.")
 
 
 def enhance(

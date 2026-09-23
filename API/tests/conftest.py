@@ -67,6 +67,8 @@ def no_audio_download(request, monkeypatch):
     def sem_rede(settings=None, baixar=True):
         return original(settings, baixar=False)
 
+    # quem precisa testar o próprio download (sem rede, com o requests falso) usa isto
+    sem_rede.original = original
     monkeypatch.setattr(deepfilter, "ensure_binary", sem_rede)
 
 

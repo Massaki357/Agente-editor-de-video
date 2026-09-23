@@ -115,6 +115,50 @@ def test_enhance_requires_an_existing_file(tmp_path):
         deepfilter.enhance(tmp_path / "nao_existe.wav", tmp_path / "saida.wav", S())
 
 
+def test_a_failed_download_is_remembered_for_the_session(tmp_path, monkeypatch):
+    """Máquina offline: não adianta tentar baixar 27 MB a cada clipe."""
+    import requests
+
+    from src.audio import denoise
+
+    settings = Settings(cache_dir=tmp_path)
+    if deepfilter.asset_da_plataforma() is None:
+        pytest.skip("plataforma sem binário do DeepFilterNet")
+    monkeypatch.setattr(deepfilter, "_download_falhou", False)
+    assert deepfilter.pode_usar(settings) is True
+    assert "deepfilternet" in denoise.motores_disponiveis(settings)
+
+    tentativas = []
+
+    def sem_rede(*a, **k):
+        tentativas.append(1)
+        raise requests.ConnectionError("sem rede")
+
+    monkeypatch.setattr(deepfilter.requests, "get", sem_rede)
+    # o conftest bloqueia downloads nos testes rápidos; aqui queremos o caminho real
+    baixar = deepfilter.ensure_binary.original
+    with pytest.raises(deepfilter.DeepFilterIndisponivel, match="falha ao baixar"):
+        baixar(settings)
+    assert deepfilter.pode_usar(settings) is False
+    assert "deepfilternet" not in denoise.motores_disponiveis(settings)
+
+    with pytest.raises(deepfilter.DeepFilterIndisponivel):
+        baixar(settings)
+    assert len(tentativas) == 2  # quem insiste em `ensure_binary` ainda tenta...
+
+
+def test_a_binary_already_in_the_cache_is_used_even_after_a_failure(tmp_path, monkeypatch):
+    """...mas o que já está baixado continua valendo."""
+    settings = Settings(cache_dir=tmp_path)
+    path = deepfilter.binary_path(settings)
+    if path is None:
+        pytest.skip("plataforma sem binário do DeepFilterNet")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"0" * (deepfilter.TAMANHO_MIN + 1))
+    monkeypatch.setattr(deepfilter, "_download_falhou", True)
+    assert deepfilter.pode_usar(settings) is True
+
+
 # ------------------------------------------------------------------ doctor
 
 

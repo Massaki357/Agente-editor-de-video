@@ -35,7 +35,7 @@ Módulo que recebe um áudio (ou o áudio extraído de um vídeo) e devolve uma 
 | Fallback leve | RNNoise do FFmpeg (`arnndn`), `noisereduce` (spectral gating) ou filtros FFmpeg (`afftdn`, `highpass`, `lowpass`), caso o DeepFilterNet não esteja disponível |
 | Normalização de volume | `loudnorm` do FFmpeg (padrão EBU R128, 2 passadas) |
 | Remoção de DC offset / rumble | `highpass=f=80` antes do resto da cadeia |
-| Formato de trabalho | WAV 48kHz mono/estéreo (conforme a fonte) internamente; conversão de entrada/saída via FFmpeg |
+| Formato de trabalho | WAV 48 kHz **mono** internamente (decidido na Etapa 1): é o que o Whisper usa e o que os motores de denoise esperam; a Etapa 3 decide o que vai no vídeo final, onde o áudio original (estéreo) continua sendo o padrão. Conversão de entrada/saída via FFmpeg |
 | Cache | Por hash do arquivo de entrada + versão da cadeia de processamento |
 | Integração | Módulo isolado em `src/audio/`, chamado pelo pipeline de vídeo e utilizável sozinho via CLI |
 
@@ -47,9 +47,9 @@ src/audio/                 (dentro de API/)
 ├── deepfilter.py     # binário oficial do DeepFilterNet: baixar e rodar   (Etapa 0 ✔)
 ├── metrics.py         # piso de ruído, nível de fala, SNR e conversão WAV  (Etapa 0 ✔)
 ├── poc.py              # prova de conceito: `python -m src.audio.poc`       (Etapa 0 ✔)
-├── optimize.py      # orquestra a cadeia: highpass -> denoise -> loudnorm
-├── denoise.py        # DeepFilterNet + fallback
-├── loudness.py        # medição e normalização (loudnorm 2 passadas)
+├── optimize.py      # cadeia highpass -> denoise -> loudnorm, com cache      (Etapa 1 ✔)
+├── denoise.py        # DeepFilterNet -> noisereduce -> afftdn                (Etapa 1 ✔)
+├── loudness.py        # medição e normalização (loudnorm 2 passadas)          (Etapa 1 ✔)
 └── cli.py            # ponto de entrada `python -m src.audio.optimize`
 ```
 
@@ -79,7 +79,7 @@ src/audio/                 (dentro de API/)
   - Passo 1: `highpass=f=80` (remove rumble/DC offset) via FFmpeg.
   - Passo 2: `audio/denoise.py` aplica o DeepFilterNet; se indisponível, cai para `noisereduce`; se nenhum dos dois estiver disponível, cai para `afftdn` do FFmpeg.
   - Passo 3: `audio/loudness.py` normaliza com `loudnorm` em duas passadas (mede e depois aplica os valores medidos, para não estourar picos).
-- Parâmetro `aggressiveness` controla o quanto o denoise é aplicado (mix entre sinal original e processado), para evitar voz robotizada em áudios pouco ruidosos.
+- Parâmetro `aggressiveness` controla o quanto o denoise é aplicado (mix entre sinal original e processado), para evitar voz robotizada em áudios pouco ruidosos. **Escala calibrada na Etapa 1** (medida com fala real): 0 não mexe, 0,5 tira 20 dB de ruído e 1 tira 100 dB; a atenuação pedida aparece quase exata no piso de ruído e o nível da voz não muda.
 - Cache por hash do arquivo + versão da cadeia (mudar um parâmetro invalida o cache).
 
 **Critérios de aceite**
@@ -136,7 +136,7 @@ src/audio/                 (dentro de API/)
 ## Checklist Parte 1
 
 - [x] Etapa 0: Setup e prova de conceito
-- [ ] Etapa 1: Cadeia básica de limpeza
+- [x] Etapa 1: Cadeia básica de limpeza
 - [ ] Etapa 2: CLI standalone
 - [ ] Etapa 3: Integração no pipeline do editor de vídeos
 - [ ] Etapa 4: Ajuste fino e testes
