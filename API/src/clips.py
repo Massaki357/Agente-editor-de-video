@@ -16,6 +16,10 @@ from src.project import Clip, ClipMeta, Project, Timeline
 
 log = logging.getLogger(__name__)
 
+PROBE_VERSION = 2  # 2: VFR e HDR
+# `color_transfer` de fontes HDR (HLG e PQ).
+HDR_TRANSFERS = {"arib-std-b67", "smpte2084"}
+
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv"}
 
 
@@ -37,9 +41,9 @@ def list_clips_from_folder(path: str | Path) -> list[Path]:
 
 
 def probe_clip(path: str | Path) -> ClipMeta:
-    """Duração, resolução de exibição, fps e presença de áudio via ffprobe (em cache)."""
+    """Duração, resolução de exibição, fps, áudio, VFR e HDR via ffprobe (em cache)."""
     path = Path(path)
-    key = file_hash(path)
+    key = f"{file_hash(path)}-{PROBE_VERSION}"
     cached = read_json_cache("probe", key)
     if cached is not None:
         return ClipMeta.model_validate(cached)
@@ -98,7 +102,24 @@ def _parse_ffprobe(info: dict, path: Path) -> ClipMeta:
         fps=_fps(video),
         tem_audio=any(s.get("codec_type") == "audio" for s in streams),
         rotacao=rotacao,
+        vfr=_is_vfr(video),
+        hdr=video.get("color_transfer") in HDR_TRANSFERS,
     )
+
+
+def _is_vfr(video: dict) -> bool:
+    """fps variável: a média difere da taxa base do container (tolerância de 1%)."""
+    taxas = []
+    for field in ("avg_frame_rate", "r_frame_rate"):
+        try:
+            f = Fraction(video.get(field, "0/0"))
+        except (ValueError, ZeroDivisionError):
+            return False
+        if f <= 0:
+            return False
+        taxas.append(float(f))
+    media, base = taxas
+    return abs(media - base) / base > 0.01
 
 
 def _to_float(value: object) -> float | None:

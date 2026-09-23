@@ -350,6 +350,39 @@ pre {
   border-color: var(--erro);
 }
 
+/* bloco de avisos (não é erro): amarelo, dispensável.
+   o nome não é `.aviso` para não pegar os selos `.selo.aviso` dos clipes */
+.bloco-aviso {
+  border: 1px solid var(--aviso);
+  background: rgba(251, 191, 36, 0.08);
+  color: var(--aviso);
+  border-radius: var(--raio-controle);
+  padding: var(--e2) var(--e3);
+  font-size: 12px;
+}
+.bloco-aviso-topo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+}
+.bloco-aviso-topo button.icone {
+  margin-left: auto;
+}
+.bloco-aviso-topo button.icone:hover {
+  color: var(--aviso);
+  border-color: var(--aviso);
+}
+.bloco-aviso ul {
+  margin: var(--e1) 0 0;
+  padding-left: var(--e4);
+  max-height: 10rem;
+  overflow-y: auto;
+  color: var(--texto);
+}
+.bloco-aviso li {
+  margin-bottom: var(--e1);
+}
+
 /* ------------------------------------------------------------------ layout */
 
 .app {
@@ -627,6 +660,17 @@ pre {
   background: #000;
   border-radius: var(--e1);
 }
+/* miniatura que não carregou (arquivo ilegível): fica um espaço neutro */
+.miniatura.sem-miniatura {
+  content-visibility: hidden;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--elevado),
+    var(--elevado) 6px,
+    var(--painel) 6px,
+    var(--painel) 12px
+  );
+}
 .cartao-dados {
   display: flex;
   flex-direction: column;
@@ -690,6 +734,9 @@ pre {
   gap: var(--e1);
   font-size: 13px;
 }
+.job > p {
+  margin: 0;
+}
 .job-topo,
 .job-rodape {
   display: flex;
@@ -733,6 +780,58 @@ pre {
   gap: var(--e2);
   padding: var(--e1) 0;
   border-bottom: 1px solid var(--borda);
+}
+.historico li .suave {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.erro-job {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+}
+.erro-job p {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ fila de jobs */
+
+.fila {
+  border-top: 1px solid var(--borda);
+  padding-top: var(--e2);
+}
+.fila .secao {
+  margin: 0 0 var(--e1);
+}
+.fila-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 10rem;
+  overflow-y: auto;
+  font-size: 12px;
+}
+.fila-lista li {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e1) 0;
+}
+.fila-tipo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fila-lista li button.link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 9rem;
+}
+.fila-lista li button.perigo {
+  margin-left: auto;
 }
 
 /* ------------------------------------------------------------------ barra de projetos */

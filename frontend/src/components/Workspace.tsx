@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
+  avisosDoResultado,
   jobAtivo,
   mensagemErro,
   type ClipOut,
@@ -9,12 +10,15 @@ import {
   type JobTipo,
   type PipelineOptions,
   type ProjectOut,
+  type ProjectSummary,
 } from '../api'
 import { usePlano } from '../usePlano'
+import AvisoBox from './AvisoBox'
 import type { Aba } from './ClipDetails'
 import ClipStrip from './ClipStrip'
 import ErrorBox from './ErrorBox'
 import JobPanel from './JobPanel'
+import JobQueue from './JobQueue'
 import OptionsPanel from './OptionsPanel'
 import Stage, { type ModoPalco } from './Stage'
 
@@ -27,31 +31,47 @@ interface Props {
   onAlterado: () => void
   /** espelha o projeto carregado no App (cabeçalho) */
   onProjeto: (p: ProjectOut | null) => void
+  /** abre outro projeto (clique no nome na fila de jobs) */
+  onAbrirProjeto: (id: string) => void
 }
 
 const INTERVALO_POLLING = 1000
 
 /** Cola tudo: carrega o projeto, faz o polling dos jobs e monta palco, faixa e opções. */
-export default function Workspace({ projetoId, config, recarga, onAlterado, onProjeto }: Props) {
+export default function Workspace({
+  projetoId,
+  config,
+  recarga,
+  onAlterado,
+  onProjeto,
+  onAbrirProjeto,
+}: Props) {
   const [projeto, setProjeto] = useState<ProjectOut | null>(null)
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [jobAtual, setJobAtual] = useState<Job | null>(null)
+  // jobs de todos os projetos (mais novos primeiro): a fila da API é global
+  const [todosJobs, setTodosJobs] = useState<Job[]>([])
+  const [projetos, setProjetos] = useState<ProjectSummary[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null) // texto da operação em andamento
-  const [cancelando, setCancelando] = useState(false)
+  const [cancelando, setCancelando] = useState<string[]>([]) // jobs com cancelamento pedido
   const [versaoPlano, setVersaoPlano] = useState(0) // recarrega o plano criativo
   const [modo, setModo] = useState<ModoPalco>('resultado')
   const [selecionado, setSelecionado] = useState<string | null>(null) // arquivo do clipe aberto
   const [aba, setAba] = useState<Aba>('video')
+  const [avisosOcultos, setAvisosOcultos] = useState<string | null>(null) // job com avisos dispensados
+  const tratados = useRef(new Set<string>()) // jobs cujo fim já recarregou o projeto
 
   const plano = usePlano(projetoId, versaoPlano)
 
   const carregar = useCallback(async () => {
     try {
-      const [p, js] = await Promise.all([api.getProject(projetoId), api.listJobs(projetoId)])
+      const [p, js, ps] = await Promise.all([
+        api.getProject(projetoId),
+        api.listJobs(),
+        api.listProjects(),
+      ])
       setProjeto(p)
-      setJobs(js)
-      setJobAtual(js[0] ?? null)
+      setTodosJobs(js)
+      setProjetos(ps)
     } catch (e) {
       setErro(mensagemErro(e))
     }
@@ -64,18 +84,24 @@ export default function Workspace({ projetoId, config, recarga, onAlterado, onPr
 
   useEffect(() => onProjeto(projeto), [projeto, onProjeto])
 
-  // polling do job enquanto pendente/rodando; ao terminar, recarrega o projeto
+  const jobs = todosJobs.filter((j) => j.projeto_id === projetoId)
+  const jobAtual = jobs[0] ?? null
   const idAtivo = jobAtual && jobAtivo(jobAtual) ? jobAtual.id : null
+  // um timer só: enquanto a fila tiver algo, relê todos os jobs (inclui o deste projeto)
+  const filaViva = todosJobs.some(jobAtivo)
+
   useEffect(() => {
-    if (!idAtivo) return
+    if (!filaViva) return
     let vivo = true
     const t = setInterval(async () => {
       try {
-        const j = await api.getJob(idAtivo)
+        const js = await api.listJobs()
         if (!vivo) return
-        setJobAtual(j)
-        if (!jobAtivo(j)) {
-          setCancelando(false)
+        setTodosJobs(js)
+        const j = idAtivo ? js.find((x) => x.id === idAtivo) : undefined
+        if (j && !jobAtivo(j) && !tratados.current.has(j.id)) {
+          tratados.current.add(j.id)
+          setCancelando((c) => c.filter((id) => id !== j.id))
           if (j.tipo === 'imagens' || j.tipo === 'gerar') setVersaoPlano((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
           if (j.status === 'concluido' && j.tipo === 'imagens') setModo('plano')
@@ -91,7 +117,7 @@ export default function Workspace({ projetoId, config, recarga, onAlterado, onPr
       vivo = false
       clearInterval(t)
     }
-  }, [idAtivo, carregar, onAlterado])
+  }, [filaViva, idAtivo, carregar, onAlterado])
 
   /** Roda uma alteração que devolve o projeto atualizado. */
   const alterar = async (rotulo: string, fn: () => Promise<ProjectOut>) => {
@@ -120,22 +146,27 @@ export default function Workspace({ projetoId, config, recarga, onAlterado, onPr
     setErro(null)
     try {
       const j = await api.createJob(projetoId, tipo, opcoes)
-      setJobAtual(j)
-      setJobs((js) => [j, ...js])
+      setTodosJobs((js) => [j, ...js])
       setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
     } catch (e) {
       setErro(mensagemErro(e))
     }
   }
 
-  const cancelar = async () => {
-    if (!jobAtual) return
-    setCancelando(true)
+  const cancelar = async (job: Job) => {
+    setCancelando((c) => (c.includes(job.id) ? c : [...c, job.id]))
     try {
-      setJobAtual(await api.cancelJob(jobAtual.id))
+      const j = await api.cancelJob(job.id)
+      setTodosJobs((js) => js.map((x) => (x.id === j.id ? j : x)))
+      // job pendente morre na hora: sem isso o projeto ficaria travado até recarregar
+      if (!jobAtivo(j) && j.projeto_id === projetoId && !tratados.current.has(j.id)) {
+        tratados.current.add(j.id)
+        await carregar()
+        onAlterado()
+      }
     } catch (e) {
       setErro(mensagemErro(e))
-      setCancelando(false)
+      setCancelando((c) => c.filter((id) => id !== job.id))
     }
   }
 
@@ -152,6 +183,8 @@ export default function Workspace({ projetoId, config, recarga, onAlterado, onPr
   const bloqueado = Boolean(projeto.job_ativo) || idAtivo !== null || ocupado !== null
   const clipe = projeto.clipes.find((c) => c.arquivo === selecionado) ?? null
   const jobGerar = jobs.find((j) => j.tipo === 'gerar' && j.status === 'concluido') ?? null
+  // avisos do último job do projeto, até o usuário dispensá-los
+  const avisos = jobAtual && avisosOcultos !== jobAtual.id ? avisosDoResultado(jobAtual.resultado) : []
 
   return (
     <>
@@ -200,7 +233,23 @@ export default function Workspace({ projetoId, config, recarga, onAlterado, onPr
             {/* sem plano carregado não há aba do palco: o erro dele aparece aqui */}
             {plano.dados === null && <ErrorBox erro={plano.erro} />}
           </div>
-          <JobPanel job={jobAtual} jobs={jobs} onCancelar={() => void cancelar()} cancelando={cancelando} />
+          <AvisoBox avisos={avisos} onFechar={() => jobAtual && setAvisosOcultos(jobAtual.id)} />
+          <JobPanel
+            job={jobAtual}
+            jobs={jobs}
+            onCancelar={() => {
+              if (jobAtual) void cancelar(jobAtual)
+            }}
+            cancelando={jobAtual !== null && cancelando.includes(jobAtual.id)}
+          />
+          <JobQueue
+            jobs={todosJobs}
+            projetos={projetos}
+            projetoAtual={projetoId}
+            onAbrirProjeto={onAbrirProjeto}
+            onCancelar={(j) => void cancelar(j)}
+            cancelando={cancelando}
+          />
         </div>
       </aside>
     </>

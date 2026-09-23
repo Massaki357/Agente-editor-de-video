@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react'
 import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type Job, type ProjectOut } from '../api'
 import type { EstadoPlano } from '../usePlano'
 import ClipDetails, { type Aba } from './ClipDetails'
@@ -35,7 +36,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
 
   return (
     <section className="palco" aria-label="Palco">
-      <div className="abas" role="tablist" aria-label="Modo do palco">
+      <div className="abas" role="tablist" aria-label="Modo do palco" onKeyDown={navegarAbas}>
         {abas.map((a) => (
           <button
             key={a.id}
@@ -44,6 +45,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
             id={`aba-${a.id}`}
             aria-selected={atual === a.id}
             aria-controls="palco-corpo"
+            tabIndex={atual === a.id ? 0 : -1}
             className={`aba${atual === a.id ? ' ativa' : ''}`}
             onClick={() => onModo(a.id)}
           >
@@ -56,7 +58,12 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
         {atual === 'resultado' && <Resultado projeto={projeto} jobGerar={jobGerar} />}
         {atual === 'clipe' && clipe && (
           <>
-            <div className="abas internas" role="tablist" aria-label="Painel do clipe">
+            <div
+              className="abas internas"
+              role="tablist"
+              aria-label="Painel do clipe"
+              onKeyDown={navegarAbas}
+            >
               <AbaClipe id="video" atual={abaClipe} onAba={onAba} rotulo="vídeo" />
               <AbaClipe
                 id="transcricao"
@@ -75,12 +82,14 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
                 dica='rode "Rastrear rosto" primeiro'
               />
             </div>
-            <ClipDetails
-              key={`${clipe.arquivo}-${abaClipe}`}
-              projetoId={projeto.id}
-              clip={clipe}
-              aba={abaClipe}
-            />
+            <div id="painel-clipe" role="tabpanel" aria-labelledby={`aba-clipe-${abaClipe}`}>
+              <ClipDetails
+                key={`${clipe.arquivo}-${abaClipe}`}
+                projetoId={projeto.id}
+                clip={clipe}
+                aba={abaClipe}
+              />
+            </div>
           </>
         )}
         {atual === 'plano' && <ImagePlan plano={plano} bloqueado={bloqueado} />}
@@ -103,7 +112,10 @@ function AbaClipe({ id, atual, onAba, rotulo, desabilitado, dica }: AbaClipeProp
     <button
       type="button"
       role="tab"
+      id={`aba-clipe-${id}`}
       aria-selected={atual === id}
+      aria-controls="painel-clipe"
+      tabIndex={atual === id ? 0 : -1}
       className={`aba pequena${atual === id ? ' ativa' : ''}`}
       onClick={() => onAba(id)}
       disabled={desabilitado}
@@ -112,6 +124,22 @@ function AbaClipe({ id, atual, onAba, rotulo, desabilitado, dica }: AbaClipeProp
       {rotulo}
     </button>
   )
+}
+
+/** Setas ← →, Home e End andam pelas abas do tablist (a seleção segue o foco). */
+function navegarAbas(ev: KeyboardEvent<HTMLDivElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return
+  const abas = Array.from(ev.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'))
+  if (abas.length === 0) return
+  const atual = abas.indexOf(document.activeElement as HTMLButtonElement)
+  let destino: number
+  if (ev.key === 'Home') destino = 0
+  else if (ev.key === 'End') destino = abas.length - 1
+  else if (atual < 0) destino = 0
+  else destino = (atual + (ev.key === 'ArrowRight' ? 1 : -1) + abas.length) % abas.length
+  ev.preventDefault()
+  abas[destino].focus()
+  abas[destino].click() // ativação automática: mostrar a aba focada
 }
 
 /** Player do vídeo final com o resumo do último render. */

@@ -42,6 +42,7 @@ A pasta `samples/` não vai para o GitHub (está no `.gitignore`), então pode u
 |---|---|---|---|---|
 | T5 | 4 | `tests/test_llm_integration.py`: LLM real em `samples/2.mp4`. Confere que ele marca os erros gravados de propósito e remove no máximo 30% do clipe | `samples/2.mp4` | ⏳ |
 | T6 | 5 | `tests/test_face_integration.py`: rastreio de rosto em `samples/3.mp4`. Confere rosto em mais de 60% do vídeo, começo centralizado sem rosto, ausência de tremor e cache, e gera `output/etapa5_debug_samples3.mp4` | `samples/3.mp4` | ⏳ |
+| T8 | 11 | `tests/test_fluxo_integration.py`: fluxo completo pela API (criar projeto → importar → transcrever → rosto → gerar) e a prévia aprovada sendo reaproveitada no render sem chamar o LLM de novo. Confere 1080x1920, áudio e vídeo com a mesma duração e o uso do LLM (tokens e custo) | 2 ou mais vídeos em `samples/` | ⏳ |
 
 ## 3. Checagens que só você pode fazer
 
@@ -61,6 +62,9 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 | C9b | 9 | Frontend: a lista de zooms aparece na prévia ("Sugerir imagens e zooms"), cada zoom liga/desliga e a opção "Zooms no rosto" desliga todos | Com a API e o frontend rodando, abra o projeto com `samples/` | 👀 |
 | C10 | 10 | A interface nova (tema escuro, palco + faixa de clipes + opções) faz sentido para você: criar/abrir projeto, importar, **arrastar clipes para reordenar**, gerar, acompanhar o progresso e assistir o resultado sem travar | Com a API (`cd API && uv run python -m src.api`) e o frontend (`cd frontend && npm run dev`) rodando, abra http://localhost:5173. Eu já conferi no navegador: layout em 1440 e 900 px, arrastar, importar pasta, remover clipe, opções travadas durante o job e o vídeo final refletindo a nova ordem. Falta seu julgamento de uso e aparência | 👀 |
 | C10b | 10 | A escolha do **modelo do LLM** nas opções funciona no seu uso (o padrão é o do `.env`) | Nas Opções, em Cortes, escolha `openai:gpt-5` e gere; o log do job deve mostrar o modelo usado | 👀 |
+| C11 | 11 | **Rodar tudo com um comando só**: `cd frontend && npm run build` e depois `cd API && uv run python -m src.api`; abra http://127.0.0.1:8000 e use normalmente (sem o `npm run dev`) | Eu conferi que a página e a API respondem; falta você usar assim no dia a dia | 👀 |
+| C11b | 11 | **Avisos e custo**: gere um vídeo e veja se os avisos dos clipes (sem áudio, fps variável, HDR, pouco rosto) e a linha do LLM (chamadas, tokens e custo estimado) fazem sentido para você | Painel do job, depois de concluído. Os preços da tabela em `API/src/llm/pricing.py` podem estar desatualizados: confira uma fatura real se for se guiar por eles | 👀 |
+| C11c | 11 | **Mensagem de erro clara**: renomeie temporariamente sua chave no `.env` (ex.: `OPENAI_API_KEY_X=`) e gere com o LLM ligado; a mensagem deve explicar o que fazer | Depois é só desfazer o rename | 👀 |
 | C6b | 6 | O vídeo vertical 1080x1920 está bom e a fala bate com a boca no começo, no meio e no fim | Assista `output/samples_palestra_9x16.mp4`. O vídeo original já era em pé, então o enquadramento quase não se move; confira a nitidez (houve ampliação de 480 para 1080 de largura) e a sincronia | 👀 |
 
 ### Com vídeos que ainda faltam

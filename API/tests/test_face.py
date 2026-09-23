@@ -269,3 +269,41 @@ def test_face_box_follows_the_face_without_anticipation(moving_video, settings_c
         cx, cy, _, _ = track.box_at(t)
         assert cx == pytest.approx(_gt_cx(t), abs=0.012), t
         assert cy == pytest.approx((60 + FACE_CY * ESCALA) / 720, abs=0.02), t
+
+
+# ------------------------------------------------------------------ cancelamento (Etapa 11)
+
+
+class _Cancelado(Exception):
+    """Faz o papel do JobCancelled da API."""
+
+
+def test_cancelling_the_debug_video_kills_ffmpeg_instead_of_hanging(tmp_path):
+    """Sem matar o ffmpeg, o `stderr.read()` travava a thread do worker para sempre."""
+    import threading
+
+    from tests.conftest import make_video, requires_ffmpeg  # noqa: F401
+
+    video = make_video(tmp_path / "v.mp4", duration=1.0, size="320x180")
+    n = 30
+    track = face.FaceTrack(
+        fps=30, largura=320, altura=180, cx=[0.5] * n, cy=[0.5] * n,
+        w=[0.1] * n, h=[0.1] * n, detectado=[True] * n, caixa=[None] * n, bruto=[],
+    )  # fmt: skip
+
+    def cancelar(_fracao: float) -> None:
+        raise _Cancelado()
+
+    capturado: list[BaseException] = []
+
+    def alvo() -> None:
+        try:
+            face.render_debug(video, tmp_path / "debug.mp4", track, 2, on_progress=cancelar)
+        except BaseException as exc:  # noqa: BLE001 - é o que o teste quer medir
+            capturado.append(exc)
+
+    t = threading.Thread(target=alvo, daemon=True)
+    t.start()
+    t.join(timeout=20)
+    assert not t.is_alive(), "render_debug travou ao cancelar (ffmpeg esperando frames)"
+    assert capturado and isinstance(capturado[0], _Cancelado)

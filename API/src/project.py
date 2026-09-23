@@ -32,6 +32,8 @@ class ClipMeta(_Modelo):
     fps: float
     tem_audio: bool
     rotacao: int = 0  # já aplicada em largura/altura (dimensões de exibição)
+    vfr: bool = False  # fps variável: o caminho da câmera pode ficar alguns frames defasado
+    hdr: bool = False  # HLG/PQ: o render converte para SDR (BT.709) com tonemapping
 
 
 class Clip(_Modelo):

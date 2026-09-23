@@ -16,6 +16,9 @@ Desenho (pensado para sincronia A/V e memória constante):
    - Com `zoom` (Etapa 9): a janela encolhe pela escala do instante (t_out) e o
      recorte é feito em coordenadas fracionárias (`cv2.warpAffine`), sem o tremor
      de 1 px que o arredondamento causaria enquanto a escala muda.
+   - Fontes muito maiores que a saída (4K) são reduzidas pelo FFmpeg antes do pipe,
+     até a janela mais fechada ainda cobrir a largura de saída (Etapa 11).
+   - Fontes HDR (HLG/PQ) passam por tonemapping para BT.709 na decodificação.
 2. **Concatenação** (`_concat`): concat demuxer, vídeo copiado e áudio codificado
    em AAC uma única vez (codificar AAC por trecho criaria gaps de priming).
 3. **Passada 2** (`_second_pass`): ponto de extensão para legendas `.ass` e
@@ -254,8 +257,9 @@ def _render_segment(seg: Segment, dest: Path, settings: RenderSettings) -> Path:
     `_audio_args`). Quadro inteiro redimensionado com letterbox (sem reenquadrar).
     """
     w, h, fps, sr = settings.width, settings.height, settings.fps, settings.sample_rate
+    cor = _decode_color_filter(seg.arquivo, _altura_origem(seg.arquivo, h))
     vf = (
-        f"fps={fps},"
+        f"fps={fps},{cor},"
         f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
         f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
     )
@@ -273,6 +277,46 @@ def _render_segment(seg: Segment, dest: Path, settings: RenderSettings) -> Path:
     ]  # fmt: skip
     _run_ffmpeg(cmd, f"trecho {seg.indice} ({seg.arquivo.name} [{seg.inicio:.3f}, {seg.fim:.3f}])")
     return dest
+
+
+@functools.lru_cache(maxsize=256)
+def _is_hdr(path: Path) -> bool:
+    """Fonte HLG/PQ? (o render converte para SDR; sem isto a imagem sai lavada)."""
+    from src.clips import HDR_TRANSFERS
+
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0"]
+            + ["-show_entries", "stream=color_transfer", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out in HDR_TRANSFERS
+
+
+@functools.lru_cache(maxsize=256)
+def _altura_origem(path: Path, padrao: int) -> int:
+    """Altura do quadro de origem (o `_source_matrix` usa isso para adivinhar SD/HD)."""
+    from src.clips import ClipProbeError, probe_clip
+
+    try:
+        return probe_clip(path).altura
+    except (ClipProbeError, OSError):
+        return padrao
+
+
+def _decode_color_filter(path: Path, altura: int) -> str:
+    """Filtro que leva a origem para BT.709: tonemapping se for HDR, matriz se não for."""
+    if _is_hdr(path):
+        # HDR → SDR: linear, tonemap hable e volta para BT.709 limitado
+        return (
+            "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+            "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+        )
+    return f"scale=in_color_matrix={_source_matrix(path, altura)}"
 
 
 @functools.lru_cache(maxsize=256)
@@ -340,15 +384,20 @@ def _render_segment_reframe(
     zoom, todos os frames usam a janela fracionária (sem salto na entrada do zoom).
     """
     ow, oh, fps = settings.width, settings.height, settings.fps
-    sw, sh = camera.largura, camera.altura
     n = seg.frames
     escalas = [zoom(seg.t_out + k / fps) if zoom else 1.0 for k in range(n)]
     com_zoom = any(e > 1.0 + 1e-9 for e in escalas)
+    # Fonte muito maior que a saída (4K): reduz o quadro no FFmpeg, antes do pipe,
+    # até a janela mais fechada ainda cobrir a largura de saída. Menos bytes por
+    # frame e menos trabalho do OpenCV, sem perder detalhe do recorte.
+    reducao = min(1.0, ow / (camera.cw / max(escalas)))
+    sw, sh = _par(camera.largura * reducao), _par(camera.altura * reducao)
+    fx, fy = sw / camera.largura, sh / camera.altura
     frame_bytes = sw * sh * 3
 
     dec_cmd = [*FFMPEG_BASE, "-ss", f"{seg.inicio:.6f}", "-i", str(seg.arquivo)]
-    matriz = _source_matrix(seg.arquivo, sh)
-    vf_dec = f"fps={fps},scale={sw}:{sh}:in_color_matrix={matriz}"
+    cor = _decode_color_filter(seg.arquivo, camera.altura)
+    vf_dec = f"fps={fps},{cor},scale={sw}:{sh}"
     dec_cmd += ["-map", "0:v:0", "-vf", vf_dec, "-frames:v", str(n)]
     dec_cmd += ["-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
 
@@ -388,8 +437,10 @@ def _render_segment_reframe(
                     raise RenderError(f"nenhum frame decodificado em {what}")
                 # (fim do arquivo antes do fim do trecho: repete o último frame)
                 t_src = seg.inicio + k / fps
-                if com_zoom:
-                    quadro = _crop_subpixel(ultimo, camera.window_f(t_src, escalas[k]), ow, oh)
+                if com_zoom or reducao < 1.0:
+                    x, y, cw, ch = camera.window_f(t_src, escalas[k])
+                    janela = (x * fx, y * fy, cw * fx, ch * fy)
+                    quadro = _crop_subpixel(ultimo, janela, ow, oh)
                 else:
                     x, y, cw, ch = camera.window(t_src)
                     quadro = _crop(ultimo, x, y, cw, ch, ow, oh)
@@ -412,6 +463,11 @@ def _render_segment_reframe(
                 f"FFmpeg falhou ao codificar {what}:\n" + "\n".join(tail[-STDERR_TAIL_LINES:])
             )
     return dest
+
+
+def _par(v: float) -> int:
+    """Dimensão par e >= 2 (o libx264 e o pipe exigem)."""
+    return max(2, int(round(v / 2)) * 2)
 
 
 def _crop(frame: np.ndarray, x: int, y: int, cw: int, ch: int, ow: int, oh: int) -> np.ndarray:

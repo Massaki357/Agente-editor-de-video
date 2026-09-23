@@ -23,12 +23,11 @@ class FakeModel:
         def segments():
             if self.fail_on_iterate:
                 raise RuntimeError("Library cublas64_12.dll is not found")
-            yield SimpleNamespace(
-                words=[
-                    SimpleNamespace(word=w, start=s, end=e, probability=0.9)
-                    for w, s, e in self.words
-                ]
-            )
+            # um segmento por palavra: dá para ver o progresso dentro do clipe
+            for w, s, e in self.words:
+                yield SimpleNamespace(
+                    end=e, words=[SimpleNamespace(word=w, start=s, end=e, probability=0.9)]
+                )
 
         return segments(), SimpleNamespace(duration=2.0)
 
@@ -174,3 +173,28 @@ def test_non_runtime_gpu_error_also_falls_back(clip, monkeypatch):
 def test_clip_without_audio_keeps_video_duration(tmp_path, fake):
     silent = make_video(tmp_path / "mudo2.mp4", duration=1.5, audio=False)
     assert tr.transcribe_clip(silent, settings=S()).duracao == pytest.approx(1.5, abs=0.1)
+
+
+def test_progress_is_reported_while_transcribing(clip, fake):
+    """Etapa 11: progresso dentro do clipe (antes só havia progresso entre clipes)."""
+    fracoes: list[float] = []
+    t = tr.transcribe_clip(clip, settings=S(), on_progress=fracoes.append)
+    assert len(t.palavras) == 3
+    assert len(fracoes) == len(WORDS)  # um aviso por segmento
+    assert fracoes == sorted(fracoes) and 0 < fracoes[0] < 1 and fracoes[-1] == pytest.approx(0.75)
+
+
+class Cancelado(Exception):
+    """Faz o papel do JobCancelled da API."""
+
+
+@pytest.mark.parametrize("device", ["cuda", "auto", "cpu"])
+def test_cancelling_never_falls_back_to_the_cpu_nor_becomes_an_error(clip, fake, device):
+    """Cancelar não pode virar 'Whisper falhou' nem re-transcrever tudo na CPU."""
+
+    def cancelar(_fracao: float) -> None:
+        raise Cancelado()
+
+    with pytest.raises(Cancelado):  # a exceção original chega a quem chamou
+        tr.transcribe_clip(clip, settings=S(whisper_device=device), on_progress=cancelar)
+    assert len(fake) == 1  # um device só: o fallback GPU → CPU não foi disparado

@@ -43,6 +43,8 @@ class ClipOut(BaseModel):
     altura: int | None
     fps: float | None
     tem_audio: bool | None
+    vfr: bool = False  # fps variável (aviso na interface)
+    hdr: bool = False  # HDR convertido para SDR no render
     trechos: list[tuple[float, float]]
     offset: float
     duracao_mantida: float

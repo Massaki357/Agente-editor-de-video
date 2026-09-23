@@ -54,7 +54,7 @@ def fake_whisper(monkeypatch):
     """Transcritor falso que também grava no cache (como o real)."""
     chamadas: list[Path] = []
 
-    def transcribe(path, settings=None, use_cache=True):
+    def transcribe(path, settings=None, use_cache=True, on_progress=None):
         path = Path(path)
         chamadas.append(path)
         settings = settings or get_settings()
@@ -119,6 +119,8 @@ def test_import_folder_in_natural_order(client, video_dir):
     assert clipes[1]["offset"] == pytest.approx(clipes[0]["duracao_mantida"])
     assert clipes[2]["tem_audio"] is False
     assert (clipes[0]["largura"], clipes[0]["altura"]) == (320, 180)
+    # Etapa 11: a interface precisa dos avisos de fonte difícil
+    assert all(c["vfr"] is False and c["hdr"] is False for c in clipes)
 
 
 def test_import_invalid_folder(client, tmp_path):
@@ -308,6 +310,10 @@ def test_face_job_generates_debug_video(client, video_dir):
     assert job["status"] == "concluido", job
     nomes = [c["debug"] for c in job["resultado"]["clipes"]]
     assert len(set(nomes)) == 3 and all(n.startswith("rosto_") for n in nomes)
+    # os vídeos sintéticos não têm rosto: o job avisa em vez de falhar (Etapa 11)
+    avisos = job["resultado"]["avisos"]
+    assert sum("rosto detectado em só 0%" in a for a in avisos) == 3
+    assert sum("sem áudio" in a for a in avisos) == 1  # 10.mp4
     # reordenar não troca o vídeo de debug de clipe (nome pelo conteúdo, não pela posição)
     antes = client.get(f"/api/projects/{pid}/clips/0/rosto").json()["debug_url"]
     client.put(f"/api/projects/{pid}/clips/order", json={"ordem": [1, 0, 2]})
@@ -571,3 +577,26 @@ def test_zoom_edit_is_blocked_during_a_job(client, tmp_path, monkeypatch):
     assert r.status_code == 409
     client.post(f"/api/jobs/{jid}/cancel")
     esperar(client, jid)
+
+
+def test_job_result_reports_llm_usage_and_cost(client, tmp_path, monkeypatch):
+    """Etapa 11: tokens e custo estimado entram no resultado de qualquer job."""
+    fake_whisper(monkeypatch)
+    from src.api import tasks
+
+    monkeypatch.setattr(
+        tasks.client,
+        "usage_totals",
+        lambda: {"openai:gpt-5-mini": {"input_tokens": 2000, "output_tokens": 1000, "calls": 1}},
+    )
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    job = esperar(
+        client, client.post(f"/api/projects/{pid}/jobs", json={"tipo": "transcrever"}).json()["id"]
+    )
+    assert job["status"] == "concluido", job
+    uso = job["resultado"]["llm"]
+    assert uso["chamadas"] == 1 and uso["tokens_entrada"] == 2000 and uso["tokens_saida"] == 1000
+    assert uso["custo_usd"] == pytest.approx(2000 * 0.25e-6 + 1000 * 2.0e-6)
+    assert uso["modelos"] == ["openai:gpt-5-mini"]
+    assert any("LLM: 1 chamada(s)" in linha for linha in job["log"])

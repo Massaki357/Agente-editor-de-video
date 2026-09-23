@@ -369,4 +369,4 @@ Editor de Videos/
 - [x] Etapa 8: Imagens
 - [x] Etapa 9: Zooms
 - [x] Etapa 10: Interface web (design)
-- [ ] Etapa 11: Polimento
+- [x] Etapa 11: Polimento

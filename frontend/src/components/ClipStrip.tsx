@@ -36,6 +36,7 @@ export default function ClipStrip({
   const [arrastando, setArrastando] = useState<number | null>(null) // posição do cartão arrastado
   const [alvo, setAlvo] = useState<number | null>(null) // posição de inserção (0..n)
   const [focar, setFocar] = useState<string | null>(null) // cartão a focar após mover pelo teclado
+  const [anuncio, setAnuncio] = useState('') // nova posição, para o leitor de tela
   const inputArquivos = useRef<HTMLInputElement>(null)
   const cartoes = useRef(new Map<string, HTMLLIElement>())
 
@@ -59,6 +60,8 @@ export default function ClipStrip({
     const destino = i + delta
     if (destino < 0 || destino >= clipes.length) return
     setFocar(clipes[i].arquivo)
+    // aria-live: sem isto quem usa leitor de tela não sabe para onde o clipe foi
+    setAnuncio(`${clipes[i].nome} agora é o clipe ${destino + 1} de ${clipes.length}`)
     mover(i, delta === 1 ? destino + 1 : destino)
   }
 
@@ -103,6 +106,9 @@ export default function ClipStrip({
       <div className="faixa-topo">
         <h2 className="secao">Clipes ({clipes.length})</h2>
         <span className="suave">arraste (ou use ← →) para reordenar</span>
+        <p className="oculto" aria-live="polite">
+          {anuncio}
+        </p>
         {bloqueado && !ocupado && <span className="texto-aviso">{DICA_BLOQUEIO}</span>}
         <div className="faixa-acoes" title={bloqueado ? DICA_BLOQUEIO : undefined}>
           {ocupado && <span className="texto-aviso">{ocupado}</span>}
@@ -201,7 +207,15 @@ export default function ClipStrip({
                     {c.nome}
                   </span>
                 </div>
-                <img src={urlDoClipe(c.thumbnail_url, c)} alt="" className="miniatura" loading="lazy" />
+                {/* arquivo ilegível (corrompido ou movido): mostra um espaço neutro,
+                    não o ícone de imagem quebrada do navegador */}
+                <img
+                  src={urlDoClipe(c.thumbnail_url, c)}
+                  alt=""
+                  className="miniatura"
+                  loading="lazy"
+                  onError={(e) => e.currentTarget.classList.add('sem-miniatura')}
+                />
                 <div className="cartao-dados">
                   <span className="numeros">
                     {fmtSeg(c.duracao)} · {c.largura ?? '?'}×{c.altura ?? '?'}
@@ -211,6 +225,22 @@ export default function ClipStrip({
                     {c.transcrito && <span className="selo ok" title="transcrito">T</span>}
                     {c.rosto && <span className="selo ok" title="rosto rastreado">R</span>}
                     {c.tem_audio === false && <span className="selo aviso">sem áudio</span>}
+                    {c.vfr && (
+                      <span
+                        className="selo aviso"
+                        title="fps variável: o enquadramento pode ficar alguns frames defasado; reexporte com fps fixo se notar atraso"
+                      >
+                        VFR
+                      </span>
+                    )}
+                    {c.hdr && (
+                      <span
+                        className="selo aviso"
+                        title="HDR: convertido para SDR (BT.709) com tonemapping no render"
+                      >
+                        HDR
+                      </span>
+                    )}
                     {c.trechos.length > 0 && (
                       <span className="selo" title={`mantém ${fmtSeg(c.duracao_mantida)}`}>
                         {c.trechos.length} trecho(s)

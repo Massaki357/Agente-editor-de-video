@@ -67,6 +67,10 @@ export interface ClipOut {
   altura: number | null
   fps: number | null
   tem_audio: boolean | null
+  /** fps variável: o enquadramento pode ficar alguns frames defasado */
+  vfr: boolean
+  /** HDR: convertido para SDR (BT.709) no render */
+  hdr: boolean
   trechos: [number, number][]
   offset: number
   duracao_mantida: number
@@ -188,6 +192,16 @@ export interface ImagemEdit {
   escolhida?: number
   ativa?: boolean
   query?: string
+}
+
+/** Espelha `UsoLLM` (API/src/llm/pricing.py): uso do LLM na execução de um job.
+ * `custo_usd` nulo = modelo fora da tabela de preços (mostre só os tokens). */
+export interface UsoLLM {
+  chamadas: number
+  tokens_entrada: number
+  tokens_saida: number
+  custo_usd: number | null
+  modelos: string[]
 }
 
 export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'gerar'
@@ -377,4 +391,63 @@ export function numeroDoResultado(
 ): number | null {
   const v = resultado?.[campo]
   return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** `resultado.avisos`: frases em português sobre os clipes (não são erros). */
+export function avisosDoResultado(resultado: Record<string, unknown> | null): string[] {
+  const v = resultado?.avisos
+  if (!Array.isArray(v)) return []
+  return v.filter((a): a is string => typeof a === 'string' && a.length > 0)
+}
+
+/** `resultado.llm`: uso do LLM daquela execução (null quando não houve chamada). */
+export function usoLLMDoResultado(resultado: Record<string, unknown> | null): UsoLLM | null {
+  const v = resultado?.llm
+  if (!v || typeof v !== 'object') return null
+  const u = v as Partial<UsoLLM>
+  if (typeof u.chamadas !== 'number') return null
+  return {
+    chamadas: u.chamadas,
+    tokens_entrada: typeof u.tokens_entrada === 'number' ? u.tokens_entrada : 0,
+    tokens_saida: typeof u.tokens_saida === 'number' ? u.tokens_saida : 0,
+    custo_usd: typeof u.custo_usd === 'number' ? u.custo_usd : null,
+    modelos: Array.isArray(u.modelos) ? u.modelos.filter((m): m is string => typeof m === 'string') : [],
+  }
+}
+
+/** Linha curta do uso do LLM: `2 chamadas · 5,4 mil tokens · ≈US$ 0,0041`. */
+export function fmtUsoLLM(uso: UsoLLM): string {
+  const tokens = uso.tokens_entrada + uso.tokens_saida
+  let texto: string
+  if (tokens >= 1e6) {
+    texto = `${(tokens / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi de tokens`
+  } else if (tokens >= 1000) {
+    texto = `${(tokens / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil tokens`
+  } else {
+    texto = `${tokens.toLocaleString('pt-BR')} ${tokens === 1 ? 'token' : 'tokens'}`
+  }
+  const partes = [
+    `${uso.chamadas.toLocaleString('pt-BR')} ${uso.chamadas === 1 ? 'chamada' : 'chamadas'}`,
+    texto,
+  ]
+  if (uso.custo_usd !== null) {
+    const casas = uso.custo_usd >= 1 ? 2 : 4
+    partes.push(
+      `≈US$ ${uso.custo_usd.toLocaleString('pt-BR', {
+        minimumFractionDigits: casas,
+        maximumFractionDigits: casas,
+      })}`,
+    )
+  }
+  return partes.join(' · ')
+}
+
+/** Separa o "(detalhe: …)" que `src/errors.py` acrescenta no fim da mensagem do job. */
+export function partesDoErro(mensagem: string): { texto: string; detalhe: string | null } {
+  const marca = mensagem.lastIndexOf('(detalhe: ')
+  if (marca < 0 || !mensagem.trimEnd().endsWith(')')) return { texto: mensagem, detalhe: null }
+  const texto = mensagem.slice(0, marca).trim()
+  const detalhe = mensagem.trimEnd().slice(marca + '(detalhe: '.length, -1).trim()
+  if (!texto || !detalhe) return { texto: mensagem, detalhe: null }
+  return { texto, detalhe }
 }

@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.cache import atomic_write_text
+from src.errors import mensagem_amigavel
 
 log = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ class JobManager:
         except Exception as exc:  # o worker nunca morre por causa de um job
             job.log.append(traceback.format_exc(limit=5))
             log.warning("Job %s (%s) falhou: %s", job.id, job.tipo, exc)
-            self._finish(job, JobStatus.erro, str(exc) or exc.__class__.__name__)
+            self._finish(job, JobStatus.erro, mensagem_amigavel(exc))
         finally:
             logging.getLogger().removeHandler(handler)
 

@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { fmtData, fmtRelogio, jobAtivo, nomeJob, type Job } from '../api'
+import {
+  fmtData,
+  fmtRelogio,
+  fmtUsoLLM,
+  jobAtivo,
+  nomeJob,
+  partesDoErro,
+  usoLLMDoResultado,
+  type Job,
+} from '../api'
 
 interface Props {
   /** job mais recente do projeto (null quando nunca rodou nada) */
@@ -13,6 +22,7 @@ interface Props {
 export default function JobPanel({ job, jobs, onCancelar, cancelando }: Props) {
   const ativo = job !== null && jobAtivo(job)
   const decorrido = useDecorrido(job, ativo)
+  const uso = job && !ativo ? usoLLMDoResultado(job.resultado) : null
 
   return (
     <div className={`job${job ? ` status-${job.status}` : ''}`}>
@@ -33,7 +43,8 @@ export default function JobPanel({ job, jobs, onCancelar, cancelando }: Props) {
             {Math.round(job.progresso * 100)}% · {fmtRelogio(decorrido)}
           </span>
             <span aria-live="polite" className="suave">
-              {job.mensagem ?? (ativo ? 'em andamento…' : '')}
+              {/* a mensagem de erro (longa) aparece inteira logo abaixo */}
+              {job.status === 'erro' ? 'falhou' : (job.mensagem ?? (ativo ? 'em andamento…' : ''))}
             </span>
             {ativo && (
               <button type="button" className="perigo pequeno" onClick={onCancelar} disabled={cancelando || job.cancelar}>
@@ -42,7 +53,17 @@ export default function JobPanel({ job, jobs, onCancelar, cancelando }: Props) {
             )}
           </div>
 
-          {job.status === 'erro' && job.mensagem && <p className="texto-erro">{job.mensagem}</p>}
+          {uso && (
+            <p
+              className="suave numeros"
+              title={uso.modelos.length > 0 ? `modelo(s): ${uso.modelos.join(', ')}` : undefined}
+            >
+              LLM: {fmtUsoLLM(uso)}
+              {uso.custo_usd === null && uso.modelos.length > 0 && ' (modelo sem preço na tabela)'}
+            </p>
+          )}
+
+          {job.status === 'erro' && job.mensagem && <ErroDoJob mensagem={job.mensagem} />}
 
           {job.log.length > 0 && (
             <details open={ativo || job.status === 'erro'}>
@@ -65,6 +86,22 @@ export default function JobPanel({ job, jobs, onCancelar, cancelando }: Props) {
         <summary>Histórico ({jobs.length})</summary>
         <Historico jobs={jobs} />
       </details>
+    </div>
+  )
+}
+
+/** Mensagem de erro do job: o texto em português e, dobrado, o detalhe técnico. */
+function ErroDoJob({ mensagem }: { mensagem: string }) {
+  const { texto, detalhe } = partesDoErro(mensagem)
+  return (
+    <div className="erro-job" role="alert">
+      <p className="texto-erro">{texto}</p>
+      {detalhe && (
+        <details>
+          <summary>detalhe técnico</summary>
+          <pre>{detalhe}</pre>
+        </details>
+      )}
     </div>
   )
 }
@@ -92,7 +129,11 @@ function Historico({ jobs }: { jobs: Job[] }) {
           <span className={`selo status-${j.status}`}>{j.status}</span>
           <span>{nomeJob(j.tipo)}</span>
           <span className="suave numeros">{fmtData(j.terminado ?? j.criado)}</span>
-          {j.mensagem && <span className="suave">{j.mensagem}</span>}
+          {j.mensagem && (
+            <span className="suave" title={j.mensagem}>
+              {partesDoErro(j.mensagem).texto}
+            </span>
+          )}
         </li>
       ))}
     </ul>

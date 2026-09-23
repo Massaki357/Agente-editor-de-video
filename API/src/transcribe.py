@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ from src.clips import probe_clip
 from src.config import Settings, get_settings
 
 log = logging.getLogger(__name__)
+
+# Progresso de uma etapa longa: recebe a fração (0..1) e pode lançar para cancelar.
+Progress = Callable[[float], None]
 
 # Mudar qualquer coisa que altere a saída exige subir a versão (invalida o cache).
 TRANSCRIBE_VERSION = 1
@@ -58,14 +62,44 @@ class Transcricao(BaseModel):
         return " ".join(p.texto for p in self.palavras)
 
 
+class _ProgressoAbortado(Exception):
+    """Exceção lançada pelo `on_progress` (cancelamento), não é falha do Whisper."""
+
+    def __init__(self, original: BaseException):
+        super().__init__(str(original))
+        self.original = original
+
+
+def _protegido(on_progress: Progress | None) -> Progress | None:
+    """Marca o que vem do `on_progress` para o cancelamento não virar erro de modelo."""
+    if on_progress is None:
+        return None
+
+    def reportar(fracao: float) -> None:
+        try:
+            on_progress(fracao)
+        except Exception as exc:
+            raise _ProgressoAbortado(exc) from exc
+
+    return reportar
+
+
 class TranscriptionError(RuntimeError):
     pass
 
 
 def transcribe_clip(
-    path: str | Path, *, use_cache: bool = True, settings: Settings | None = None
+    path: str | Path,
+    *,
+    use_cache: bool = True,
+    settings: Settings | None = None,
+    on_progress: Progress | None = None,
 ) -> Transcricao:
-    """Transcreve um clipe. Usa o cache por hash do arquivo + parâmetros do modelo."""
+    """Transcreve um clipe. Usa o cache por hash do arquivo + parâmetros do modelo.
+
+    `on_progress(fracao)` é chamado a cada segmento reconhecido (nunca com cache);
+    pode lançar exceção para cancelar (é assim que o job `transcrever` cancela).
+    """
     settings = settings or get_settings()
     path = Path(path)
     key = cache_key(file_hash(path), settings)
@@ -77,7 +111,7 @@ def transcribe_clip(
             return Transcricao.model_validate(cached)
 
     started = time.perf_counter()
-    result = _transcribe_uncached(path, settings)
+    result = _transcribe_uncached(path, settings, on_progress)
     log.info(
         "Transcrito %s: %d palavras em %.1f s",
         path.name,
@@ -108,7 +142,9 @@ def cache_key(arquivo_hash: str, settings: Settings) -> str:
     return f"{arquivo_hash[:32]}-{digest}"
 
 
-def _transcribe_uncached(path: Path, settings: Settings) -> Transcricao:
+def _transcribe_uncached(
+    path: Path, settings: Settings, on_progress: Progress | None = None
+) -> Transcricao:
     arquivo_hash = file_hash(path)
     with tempfile.TemporaryDirectory(prefix="editor_audio_") as tmp:
         wav = Path(tmp) / "audio.wav"
@@ -122,13 +158,19 @@ def _transcribe_uncached(path: Path, settings: Settings) -> Transcricao:
             )
 
         device = resolve_device(settings.whisper_device)
+        progresso = _protegido(on_progress)
         try:
-            raw_words, duracao = _run_whisper(wav, settings.whisper_model, device)
+            raw_words, duracao = _run_whisper(wav, settings.whisper_model, device, progresso)
+        except _ProgressoAbortado as abortado:  # cancelamento: nem erro, nem fallback
+            raise abortado.original from None
         except Exception as exc:  # erros de CUDA/ctranslate2 variam (RuntimeError, ValueError...)
             if device != "cuda" or settings.whisper_device == "cuda":
                 raise TranscriptionError(f"Whisper falhou em {path.name}: {exc}") from exc
             log.warning("Whisper falhou na GPU (%s); tentando na CPU.", exc)
-            raw_words, duracao = _run_whisper(wav, settings.whisper_model, "cpu")
+            try:
+                raw_words, duracao = _run_whisper(wav, settings.whisper_model, "cpu", progresso)
+            except _ProgressoAbortado as abortado:
+                raise abortado.original from None
 
     return Transcricao(
         arquivo_hash=arquivo_hash,
@@ -190,7 +232,9 @@ def resolve_device(device: str) -> str:
         return "cpu"
 
 
-def _run_whisper(wav: Path, model_name: str, device: str) -> tuple[list[dict[str, Any]], float]:
+def _run_whisper(
+    wav: Path, model_name: str, device: str, on_progress: Progress | None = None
+) -> tuple[list[dict[str, Any]], float]:
     model = load_model(model_name, device)
     segments, info = model.transcribe(
         str(wav),
@@ -201,12 +245,16 @@ def _run_whisper(wav: Path, model_name: str, device: str) -> tuple[list[dict[str
         beam_size=5,
     )
     # `segments` é um gerador: a transcrição (e erros de CUDA) acontecem aqui.
-    words = [
-        {"texto": w.word, "inicio": w.start, "fim": w.end, "prob": w.probability}
-        for seg in segments
-        for w in (seg.words or [])
-    ]
-    return words, float(info.duration)
+    duracao = float(info.duration)
+    words: list[dict[str, Any]] = []
+    for seg in segments:
+        words += [
+            {"texto": w.word, "inicio": w.start, "fim": w.end, "prob": w.probability}
+            for w in (seg.words or [])
+        ]
+        if on_progress is not None and duracao > 0:
+            on_progress(min(seg.end / duracao, 1.0))
+    return words, duracao
 
 
 @lru_cache(maxsize=2)

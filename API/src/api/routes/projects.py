@@ -62,6 +62,8 @@ def _clip_out(pid: str, i: int, clip: Clip) -> ClipOut:
         altura=meta.altura if meta else None,
         fps=meta.fps if meta else None,
         tem_audio=meta.tem_audio if meta else None,
+        vfr=meta.vfr if meta else False,
+        hdr=meta.hdr if meta else False,
         trechos=clip.trechos,
         offset=clip.offset,
         duracao_mantida=clip.duracao_mantida,
@@ -259,7 +261,8 @@ def clip_thumbnail(pid: str, indice: int, store: Store) -> FileResponse:
         cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-ss", str(t)]
         cmd += ["-i", str(path), "-frames:v", "1", "-vf", "scale=320:-2", str(destino)]
         if subprocess.run(cmd, capture_output=True).returncode != 0 or not destino.exists():
-            raise HTTPException(500, "não foi possível gerar a miniatura")
+            # arquivo corrompido ou codec exótico: não é erro do servidor
+            raise HTTPException(422, f"não foi possível ler um frame de {Path(path).name}")
     return FileResponse(destino, media_type="image/jpeg")
 
 

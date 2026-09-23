@@ -18,7 +18,7 @@ import math
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import cv2
@@ -30,6 +30,9 @@ from src.cache import file_hash, read_json_cache, write_json_cache
 from src.config import Settings, get_settings
 
 log = logging.getLogger(__name__)
+
+# Progresso de uma etapa longa: recebe a fração (0..1) e pode lançar para cancelar.
+Progress = Callable[[float], None]
 
 FACE_VERSION = 3
 MODEL_NAME = "blaze_face_short_range.tflite"
@@ -191,12 +194,17 @@ def square_crops(largura: int, altura: int) -> list[tuple[int, int, int]]:
 
 
 def detect_raw(
-    path: Path, params: FaceParams, settings: Settings
+    path: Path,
+    params: FaceParams,
+    settings: Settings,
+    on_progress: Progress | None = None,
 ) -> tuple[float, int, int, int, list[tuple[float, float, float, float] | None]]:
     """Detecta nos frames amostrados. Devolve fps, largura, altura, nº de frames e as
     detecções (uma por frame amostrado, None quando não há rosto)."""
     import mediapipe as mp
     from mediapipe.tasks.python import BaseOptions, vision
+
+    from src.clips import probe_clip
 
     fps = video_fps(path)
     options = vision.FaceDetectorOptions(
@@ -208,8 +216,12 @@ def detect_raw(
     largura = altura = n = 0
     crops: list[tuple[int, int, int]] = []
     # Um detector por clipe: o modo VIDEO exige timestamps crescentes.
+    # só precisa do total (e do ffprobe) para reportar progresso
+    total = max(1.0, probe_clip(path).duracao * fps) if on_progress is not None else 1.0
     with vision.FaceDetector.create_from_options(options) as detector:
         for n, frame in enumerate(iter_frames(path)):
+            if on_progress is not None and n % params.passo == 0:
+                on_progress(min(n / total, 1.0))
             if n == 0:
                 altura, largura = frame.shape[:2]
                 crops = square_crops(largura, altura)
@@ -375,8 +387,13 @@ def track_faces(
     *,
     settings: Settings | None = None,
     use_cache: bool = True,
+    on_progress: Progress | None = None,
 ) -> FaceTrack:
-    """Rastreio suavizado do rosto em todos os frames do clipe (em cache)."""
+    """Rastreio suavizado do rosto em todos os frames do clipe (em cache).
+
+    `on_progress(fracao)` é chamado enquanto detecta (nunca com cache) e pode lançar
+    exceção para cancelar.
+    """
     params = params or FaceParams()
     settings = settings or get_settings()
     path = Path(path)
@@ -388,7 +405,7 @@ def track_faces(
             return FaceTrack.model_validate(cached)
 
     started = time.perf_counter()
-    fps, largura, altura, n_frames, amostras = detect_raw(path, params, settings)
+    fps, largura, altura, n_frames, amostras = detect_raw(path, params, settings, on_progress)
     valores, detectado = fill_and_interpolate(amostras, params.passo, n_frames)
     suave = smooth_track(valores, params, fps)
     track = FaceTrack(
@@ -419,7 +436,9 @@ def track_faces(
 # --------------------------------------------------------------------------- debug
 
 
-def render_debug(path: Path, output: Path, track: FaceTrack, passo: int) -> Path:
+def render_debug(
+    path: Path, output: Path, track: FaceTrack, passo: int, on_progress: Progress | None = None
+) -> Path:
     """Debug: detecção bruta (vermelho), caixa real suavizada (verde) e centro da câmera
     (cruz azul-clara)."""
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -428,7 +447,10 @@ def render_debug(path: Path, output: Path, track: FaceTrack, passo: int) -> Path
     cmd += ["-r", f"{track.fps}", "-i", "-", "-i", str(path), "-map", "0:v", "-map", "1:a?"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     cmd += ["-c:a", "aac", "-shortest", str(output)]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg não encontrado no PATH (rode `python -m src.doctor`)") from exc
     assert proc.stdin is not None
     W, H = track.largura, track.altura
 
@@ -439,6 +461,8 @@ def render_debug(path: Path, output: Path, track: FaceTrack, passo: int) -> Path
 
     try:
         for i, frame in enumerate(iter_frames(path)):
+            if on_progress is not None and i % 10 == 0:
+                on_progress(min(i / max(track.n_frames, 1), 1.0))
             if i >= track.n_frames:
                 break
             k = i // passo
@@ -453,10 +477,16 @@ def render_debug(path: Path, output: Path, track: FaceTrack, passo: int) -> Path
             cv2.putText(frame, rotulo, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             proc.stdin.write(frame.tobytes())
         proc.stdin.close()
+    except BaseException:
+        # cancelamento ou erro no meio do loop: sem matar o ffmpeg, ele ficaria
+        # esperando frames e o `stderr.read()` abaixo travaria para sempre
+        proc.kill()
+        proc.wait()
+        raise
     finally:
         err = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-        if proc.wait() != 0:
-            raise RuntimeError(f"ffmpeg falhou no vídeo de debug: {err[-1500:]}")
+    if proc.wait() != 0:
+        raise RuntimeError(f"ffmpeg falhou no vídeo de debug: {err[-1500:]}")
     return output
 
 

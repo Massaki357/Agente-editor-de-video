@@ -75,6 +75,7 @@ export default function App() {
           recarga={recarga}
           onAlterado={alterado}
           onProjeto={setProjeto}
+          onAbrirProjeto={abrir}
         />
       ) : (
         <section className="palco" aria-label="Palco">
