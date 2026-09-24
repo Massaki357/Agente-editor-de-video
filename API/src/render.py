@@ -99,6 +99,8 @@ class Segment:
     t_out: float
     tem_audio: bool
     audio: Path | None = None  # trilha alternativa (áudio limpo da Parte 1)
+    fade_in: bool = True
+    fade_out: bool = True
 
 
 @dataclass(frozen=True)
@@ -390,11 +392,10 @@ def _audio_args(seg: Segment, settings: RenderSettings, input_index: int) -> tup
     af = [f"aresample={sr}", "aformat=sample_fmts=s16:channel_layouts=stereo"]
     if seg.tem_audio:
         af = [f"atrim=start={seg.inicio:.6f}", "asetpts=PTS-STARTPTS", *af]
-    if fade > 0:
-        af += [
-            f"afade=t=in:st=0:d={fade:.6f}",
-            f"afade=t=out:st={duration - fade:.6f}:d={fade:.6f}",
-        ]
+    if fade > 0 and seg.fade_in:
+        af.append(f"afade=t=in:st=0:d={fade:.6f}")
+    if fade > 0 and seg.fade_out:
+        af.append(f"afade=t=out:st={duration - fade:.6f}:d={fade:.6f}")
     af.append("apad")
     if seg.tem_audio:
         entradas = ["-i", str(seg.audio or seg.arquivo)]
@@ -586,6 +587,9 @@ def _second_pass(
     settings: RenderSettings,
     legendas: Path | None = None,
     overlays: Sequence[Overlay] = (),
+    *,
+    time_offset: float = 0.0,
+    output_ext: str = ".mp4",
 ) -> Path:
     """Passada 2: efeitos sobre o vídeo concatenado, já no tempo do vídeo final.
 
@@ -602,6 +606,9 @@ def _second_pass(
     cmd = [*FFMPEG_BASE, "-i", concatenated.name]
     grafo: list[str] = []
     atual = "0:v"
+    if time_offset:
+        grafo.append(f"[0:v]setpts=PTS-STARTPTS+{time_offset:.6f}/TB[base]")
+        atual = "base"
     fps = settings.fps
     for k, ov in enumerate(overlays, start=1):
         nome = f"overlay_{k}.png"
@@ -632,10 +639,12 @@ def _second_pass(
         for fonte in FONTS_DIR.glob("*.[ot]tf"):
             shutil.copyfile(fonte, fontes / fonte.name)
         finais.append("ass=legendas.ass:fontsdir=fonts")
+    if time_offset:
+        finais.append(f"setpts=PTS-{time_offset:.6f}/TB")
     finais.append("setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv")
     grafo.append(f"[{atual}]{','.join(finais)}[out]")
 
-    saida = tmp / "passada2.mp4"
+    saida = tmp / f"passada2{output_ext}"
     cmd += ["-filter_complex", ";".join(grafo), "-map", "[out]", "-map", "0:a?"]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p"]
     cmd += ["-c:a", "copy", "-movflags", "+faststart", saida.name]

@@ -33,6 +33,7 @@ class JobCreate(BaseModel):
     opcoes: PipelineOptions | None = Field(
         None, description="para 'rosto', 'imagens', 'broll' e 'gerar': opções do pipeline"
     )
+    ids_alterados: list[str] = Field(default_factory=list)
 
 
 class ClipOut(BaseModel):

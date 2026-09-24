@@ -216,7 +216,11 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     project = store.load(job.projeto_id)
     saida = store.saida_dir(job.projeto_id)
     plano = store.load_plan(job.projeto_id)
-    result = pipeline.render_project(project, saida / VIDEO_FINAL, options, ctx.step, plano)
+    result = pipeline.render_project(
+        project, saida / VIDEO_FINAL, options, ctx.step, plano,
+        render_cache_dir=store.dir(job.projeto_id) / "render_cache",
+        ids_alterados=set((job.opcoes or {}).get("ids_alterados", [])),
+    )
     store.save(job.projeto_id, project)  # trechos e offsets calculados
     if result.plano is not None:
         store.save_plan(job.projeto_id, result.plano)
@@ -225,6 +229,8 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
         "imagens": result.imagens,
         "zooms": result.zooms,
         "broll": result.broll,
+        "segmentos_renderizados": result.segmentos_renderizados,
+        "segmentos_reutilizados": result.segmentos_reutilizados,
         "video": VIDEO_FINAL,
         "duracao_final": round(result.duracao_final, 3),
         "duracao_original": round(result.duracao_original, 3),

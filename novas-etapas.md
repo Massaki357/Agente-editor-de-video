@@ -619,7 +619,7 @@ src/editing/
 ## Checklist Parte 5
 
 - [x] Etapa 0: `project.json` como documento único e versionado
-- [ ] Etapa 1: Segmentação do render
+- [x] Etapa 1: Segmentação do render
 - [ ] Etapa 2: Substituição manual de imagens e vídeos
 - [ ] Etapa 3: Histórico e desfazer/refazer
 - [ ] Etapa 4: UI de edição pós-render
@@ -630,7 +630,14 @@ src/editing/
 Etapa 0 verificada: IDs estáveis no `project.json` v2, plano criativo lido do
 documento, migração v1 com backup e keyframes/legendas registrados após render.
 Dois projetos salvos foram migrados sem falhas; os testes e a revisão independente
-aprovaram os critérios automatizáveis. A próxima etapa é a segmentação do render.
+aprovaram os critérios automatizáveis.
+
+Etapa 1 verificada: o job `gerar` guarda segmentos finais por hash, invalida IDs
+alterados e intervalos antigos de IDs movidos/removidos, reaproveita os demais
+e concatena o vídeo com áudio contínuo. Testes sintéticos compararam quadros e
+áudio com um render limpo após troca de imagem, legenda e B-roll com transição;
+elementos inativos não invalidam cache. A segunda geração pela API reutilizou
+todos os segmentos. A revisão independente aprovou os critérios.
 
 ---
 

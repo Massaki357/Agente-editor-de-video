@@ -95,6 +95,10 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Render incremental pós-render (24/09/2026)
+
+- ✅ **P5-E1: segmentação e cache aprovados tecnicamente.** Os testes sintéticos compararam quadro a quadro e amostra a amostra o resultado incremental com o render completo equivalente após alterar imagem e B-roll com transição. A troca de modo de legenda reaproveitou os trechos sem texto; elementos inativos não invalidaram cache, e o áudio coincidiu com o render legado. O job da API reutilizou todos os segmentos na segunda geração sem mudanças. Suíte completa: 556 testes aprovados, 19 de integração não executados; após os ajustes da revisão, 39 testes focados passaram. Doctor: 0 faltando. A revisão independente aprovou a etapa. A troca por UI e a avaliação em vídeo real pertencem às etapas seguintes.
+
 ### Documento de edição pós-render (24/09/2026)
 
 - ✅ **P5-E0: documento v2 e migração concluídos.** `project.json` agora contém IDs estáveis para clipes, cortes, imagens, zooms, B-roll, destaques, crops e eventos de legenda. A API lê o plano criativo do documento; sidecars antigos só servem como cópia de compatibilidade. Dois projetos existentes foram migrados, cada um com backup `project.v1.json`; o plano importado do projeto com sidecar foi comparado integralmente e preservado. Testes sintéticos cobrem o documento novo, migração, intervalos visuais, edição por ID e invalidação após cortes. Suíte completa: 552 aprovados, 19 de integração não executados; após o ajuste final, 75 testes focados e Ruff passaram. Doctor: 0 itens faltando. O verificador independente aprovou a etapa. Não há conferência manual necessária para este critério.

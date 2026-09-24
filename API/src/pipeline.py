@@ -36,6 +36,7 @@ from src.editing.project_schema import (
     com_plano,
     eventos_ass,
     keyframes_crop,
+    sincronizar_timeline,
 )
 from src.face import FaceTrack, track_faces
 from src.highlight_captions.ass_builder import HighlightStyle, write_highlights_project
@@ -125,6 +126,8 @@ class PipelineResult(BaseModel):
     imagens: int = 0  # imagens que entraram no vídeo
     zooms: int = 0  # zooms que entraram no vídeo
     broll: int = 0  # cutaways que entraram no vídeo
+    segmentos_renderizados: int = 0
+    segmentos_reutilizados: int = 0
     plano: PlanoImagens | None = None  # plano usado (para salvar no projeto)
 
     @property
@@ -312,6 +315,8 @@ def render_project(
     options: PipelineOptions | None = None,
     on_step: StepCallback = _noop,
     plano: PlanoImagens | None = None,
+    render_cache_dir: Path | None = None,
+    ids_alterados: set[str] | None = None,
 ) -> PipelineResult:
     """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final.
 
@@ -462,34 +467,60 @@ def render_project(
         if options.limpar_audio:
             tempos["limpeza do áudio"] = time.perf_counter() - t0
 
-        t0 = time.perf_counter()
-        render_timeline(
-            video_project.timeline,
-            output,
-            size=size if options.reenquadrar else None,
-            fps=settings.output_fps,
-            sample_rate=settings.output_sample_rate,
-            progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
-            cameras=cameras,
-            legendas=legendas,
-            overlays=overlays,
-            zoom=zoom,
-            audios=limpos,
-            broll=cutaways,
-            broll_transition=options.broll_transition,
+        if plano_usado is not None:
+            project.documento = com_plano(project.documento, plano_usado)
+        project.documento = com_crops(
+            project.documento, keyframes_crop(project.timeline, cameras or {})
         )
-        tempos["render"] = time.perf_counter() - t0
+        project.documento = com_legendas(
+            project.documento,
+            eventos_ass(legendas) if options.legendas_continuas else [],
+        )
+        project.documento = sincronizar_timeline(project.documento, project.timeline)
+        project.documento.assinatura_timeline = assinatura_timeline(project.timeline)
 
-    if plano_usado is not None:
-        project.documento = com_plano(project.documento, plano_usado)
-    project.documento = com_crops(
-        project.documento, keyframes_crop(project.timeline, cameras or {})
-    )
-    project.documento = com_legendas(
-        project.documento,
-        eventos_ass(legendas) if options.legendas_continuas else [],
-    )
-    project.documento.assinatura_timeline = assinatura_timeline(project.timeline)
+        t0 = time.perf_counter()
+        if render_cache_dir is None:
+            render_timeline(
+                video_project.timeline,
+                output,
+                size=size if options.reenquadrar else None,
+                fps=settings.output_fps,
+                sample_rate=settings.output_sample_rate,
+                progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
+                cameras=cameras,
+                legendas=legendas,
+                overlays=overlays,
+                zoom=zoom,
+                audios=limpos,
+                broll=cutaways,
+                broll_transition=options.broll_transition,
+            )
+            segmentos_renderizados = segmentos_reutilizados = 0
+        else:
+            from src.editing.incremental_render import render_incremental
+
+            incremental = render_incremental(
+                video_project.timeline,
+                project.documento,
+                output,
+                render_cache_dir,
+                size=size if options.reenquadrar else None,
+                fps=settings.output_fps,
+                sample_rate=settings.output_sample_rate,
+                progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
+                cameras=cameras,
+                legendas=legendas,
+                overlays=overlays,
+                zoom=zoom,
+                audios=limpos,
+                broll=cutaways,
+                broll_transition=options.broll_transition,
+                ids_alterados=ids_alterados,
+            )
+            segmentos_renderizados = incremental.renderizados
+            segmentos_reutilizados = incremental.reutilizados
+        tempos["render"] = time.perf_counter() - t0
 
     result = PipelineResult(
         avisos=avisos_audio,
@@ -500,6 +531,8 @@ def render_project(
         imagens=len(overlays),
         zooms=n_zooms,
         broll=len(cutaways),
+        segmentos_renderizados=segmentos_renderizados,
+        segmentos_reutilizados=segmentos_reutilizados,
         plano=plano_usado,
     )
     log.info(

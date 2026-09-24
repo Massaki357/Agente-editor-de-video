@@ -164,6 +164,26 @@ O comando `src.render` acima é o render básico da timeline para depuração; e
 não monta os efeitos do plano criativo. A interface/API gera o vídeo completo
 a partir do documento; `src.pipeline` cria um novo documento a partir dos clipes.
 
+### Render por segmentos
+
+O job **Gerar vídeo** guarda segmentos prontos em
+`API/data/projects/<id>/render_cache/`. Ao gerar novamente, reaproveita os
+trechos cujas fontes, decisões e efeitos continuam iguais. O resultado do job
+informa `segmentos_renderizados` e `segmentos_reutilizados`. Para solicitar uma
+edição pontual pela API, envie os IDs alterados no corpo de
+`POST /api/projects/<id>/jobs`:
+
+```json
+{"tipo": "gerar", "ids_alterados": ["img_003"]}
+```
+
+Se a geração anterior usou opções personalizadas, envie as mesmas `opcoes`
+nessa chamada para conservar o plano e aproveitar o cache.
+
+O vídeo final é remontado a partir dos segmentos válidos, com o áudio codificado
+uma vez. A troca de imagens e vídeos pela interface será acrescentada na próxima
+etapa; o envio de IDs já permite usar o motor incremental pela API.
+
 ## Estabilizando o vídeo
 
 **No editor**, marque "estabilizar clipes" no grupo *Imagem* e escolha o nível

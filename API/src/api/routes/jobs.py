@@ -43,6 +43,8 @@ def create_job(pid: str, body: JobCreate, store: Store, jobs: Jobs) -> Job:
                 "legendas_destaque": project.legendas_destaque,
                 "estilo_destaque": project.estilo_destaque.model_dump(),
             }
+        if body.ids_alterados:
+            opcoes["ids_alterados"] = body.ids_alterados
         return jobs.submit(pid, body.tipo, opcoes)
 
 

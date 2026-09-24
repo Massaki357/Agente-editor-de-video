@@ -362,6 +362,17 @@ def test_generate_without_cuts_keeps_whole_clip(client, tmp_path, monkeypatch):
 
     final = get_settings().data_dir / "projects" / pid / "saida" / "final.mp4"
     assert (probe_clip(final).largura, probe_clip(final).altura) == (320, 180)  # quadro original
+    assert job["resultado"]["segmentos_renderizados"] > 0
+
+    # A segunda geração com as mesmas decisões usa os MOVs já prontos.
+    again = client.post(
+        f"/api/projects/{pid}/jobs",
+        json={"tipo": "gerar", "opcoes": {"cortes": False, "reenquadrar": False}},
+    )
+    reused = esperar(client, again.json()["id"])
+    assert reused["status"] == "concluido", reused
+    assert reused["resultado"]["segmentos_renderizados"] == 0
+    assert reused["resultado"]["segmentos_reutilizados"] > 0
 
 
 def test_running_job_blocks_changes_and_can_be_cancelled(client, video_dir, monkeypatch):
