@@ -6,12 +6,13 @@
 2. Peça uma etapa por vez: *"Leia o novas-etapas.md e implemente a Etapa N da Parte X."*
 3. Rode os testes e faça commit antes de pedir a próxima etapa.
 
-Este arquivo cobre cinco ferramentas independentes entre si:
+Este arquivo cobre seis frentes de trabalho:
 - **Parte 1 — Otimizador de Áudio:** limpa ruído de fundo e normaliza volume.
 - **Parte 2 — Estabilizador de Vídeo:** remove tremedeira de câmera na mão.
 - **Parte 3 — Cutaways de B-roll:** troca a tela inteira por vídeos relacionados ao assunto, com transição, enquanto a voz continua.
 - **Parte 4 — Legendas de Destaque:** mostra só frases de impacto na tela, em vez de legenda o tempo todo.
 - **Parte 5 — Edição Pós-Render e Chat de Ajustes:** editar, substituir elementos e pedir ajustes por chat depois do vídeo já gerado, sem recomeçar do zero.
+- **Parte 6 — Transições adicionais de B-roll:** amplia os efeitos e a escolha na interface.
 
 Cada parte pode ser desenvolvida e usada separadamente, mas todas se encaixam no mesmo pipeline do editor de vídeos (`etapas.md`).
 
@@ -289,7 +290,7 @@ Enquanto você continua falando, a tela corta para um vídeo relacionado ao assu
 |---|---|
 | Unidade de planejamento | **Trecho de fala** (frase ou período semântico com início/fim), não palavra isolada |
 | Fonte dos clipes de B-roll | Pexels Videos (API própria de vídeo) e Pixabay Videos como fallback |
-| Transição padrão | Corte seco (hard cut) — é o que mais se vê nesse estilo e é o mais barato de renderizar. Crossfade (`xfade` do FFmpeg) como opção configurável |
+| Transição padrão | Corte seco (hard cut) — é o que mais se vê nesse estilo e é o mais barato de renderizar. Crossfade, deslizamento e varredura (`xfade` do FFmpeg) como opções configuráveis |
 | Áudio | **Nunca corta.** O áudio original (voz) segue contínuo por baixo do cutaway; só a imagem muda |
 | Duração de cada cutaway | Entre 1,5 s e o tamanho do trecho de fala correspondente, limitado a um teto configurável (padrão 4 s) |
 | Densidade | No máximo 1 cutaway a cada ~8-10 s de fala, para não virar um vídeo picado demais |
@@ -340,7 +341,7 @@ src/broll/
 **Objetivo:** encaixar os cutaways no vídeo final.
 
 **Tarefas**
-- `transitions.py`: aplicar hard cut (concatenação direta) ou crossfade (`xfade` do FFmpeg, ~0,2-0,3 s) conforme configuração.
+- `transitions.py`: aplicar hard cut (concatenação direta) ou efeito `xfade` do FFmpeg (~0,2-0,3 s): crossfade, deslizamento ou varredura, conforme configuração.
 - Inserir os cutaways na timeline global **depois** do reenquadramento vertical e dos zooms (Etapas 6 e 9 do `etapas.md`), já que eles substituem o quadro inteiro nesses intervalos — não precisam de crop dinâmico nem de rastreio de rosto.
 - Manter o áudio original (voz) sem cortes durante todo o processo; só a trilha de vídeo é trocada nos intervalos de cutaway.
 - Cutaways nunca atravessam a emenda entre clipes originais do projeto.
@@ -376,9 +377,13 @@ src/broll/
 
 - [x] Etapa 0: Planejamento com o LLM
 - [x] Etapa 1: Busca e preparo dos clipes de B-roll
-- [ ] Etapa 2: Transições e montagem na timeline
+- [x] Etapa 2: Transições e montagem na timeline
 - [ ] Etapa 3: Preview e aprovação
 - [ ] Etapa 4: Integração na UI
+
+As implementações e verificações automáticas das Etapas 3 e 4 estão prontas. Os
+checklists aguardam a conferência visual registrada em `testes-pendentes.md`
+(P3-C3: pertinência dos vídeos de café; P3-C4: interface e vídeo de três clipes).
 
 ---
 
@@ -386,9 +391,9 @@ src/broll/
 
 ## Visão geral
 
-Em vez de legenda o vídeo inteiro (Etapa 7 do `etapas.md`), só as **frases de impacto** ganham texto na tela: o texto vai aparecendo enquanto a pessoa fala e continua visível por um instante depois que ela termina a frase, antes de sumir. É o efeito de ênfase que se vê em vídeos de criador, usado com moderação, não em toda fala.
+Em vez de legenda o vídeo inteiro (Etapa 7 do `etapas.md`), só **trechos de impacto com até cinco palavras** ganham texto na tela: o texto vai aparecendo enquanto a pessoa fala e continua visível por um instante depois que ela termina, antes de sumir. É o efeito de ênfase que se vê em vídeos de criador, usado com moderação, não em toda fala.
 
-**Incompatibilidade com a Etapa 7:** as duas legendam o vídeo, mas com lógicas opostas (contínua vs. só destaques) e estilos visuais diferentes (texto pequeno no terço inferior vs. texto grande, centralizado, tipo cartaz). Usar as duas juntas polui a tela e confunde o espectador. **As duas opções são mutuamente exclusivas: o projeto só pode ter uma ativa por vez, nunca as duas.**
+**Incompatibilidade com a Etapa 7:** as duas legendam o vídeo, mas com lógicas opostas (contínua vs. só destaques) e estilos visuais diferentes. Usar as duas juntas polui a tela e confunde o espectador. **As duas opções são mutuamente exclusivas: o projeto só pode ter uma ativa por vez, nunca as duas.**
 
 **Onde entra no pipeline principal:** mesmo ponto da Etapa 7 do `etapas.md` (depois de ter os tempos finais das palavras), mas como alternativa a ela, não como adição.
 
@@ -396,11 +401,11 @@ Em vez de legenda o vídeo inteiro (Etapa 7 do `etapas.md`), só as **frases de 
 
 | Tema | Decisão |
 |---|---|
-| Unidade de planejamento | **Trecho de fala** (frase completa marcada como impactante), igual à Parte 3 |
+| Unidade de planejamento | **Trecho literal de até cinco palavras consecutivas** dentro de uma frase de impacto, sem reescrever a transcrição |
 | Exclusividade | Validação em código: `legendas_continuas` e `legendas_destaque` nunca podem ser `true` ao mesmo tempo no `project.json`. UI (Etapa 10 do `etapas.md`) usa um único seletor (nenhuma / contínua / destaque), não duas caixas independentes |
 | Aparição do texto | Revelação progressiva palavra a palavra, acompanhando a fala (efeito karaokê), não a frase inteira de uma vez |
 | Permanência após a fala | Frase completa fica na tela por um tempo configurável depois que a pessoa termina de falar (padrão 1,2 s), depois some com fade |
-| Estilo visual | Fonte grande, centralizada (não no terço inferior), diferente da legenda contínua — visualmente reconhecível como "destaque", não como legenda comum |
+| Estilo visual | Fonte menor (72 px na base 1080x1920), até duas linhas e posição estável escolhida entre áreas livres; usa as caixas de rosto quando disponíveis e prefere o alto do quadro sem cobrir a pessoa |
 | Formato de geração | Mesmo mecanismo da Etapa 7 (arquivo `.ass` queimado com o filtro `ass=`), com um estilo e uma lógica de tempo próprios |
 | Densidade | Poucas por vídeo — o LLM escolhe só as frases realmente marcantes, não frase a frase |
 
@@ -419,8 +424,8 @@ src/highlight_captions/
 
 **Tarefas**
 - Novo schema no plano criativo: `destaques: [{trecho_inicio_palavra, trecho_fim_palavra, texto, motivo}]`.
-- Prompt em `llm/prompts/plano_destaques.md`: recebe a transcrição global e escolhe frases com carga (dado forte, virada de argumento, frase de efeito), evitando trechos consecutivos.
-- Validação em código: trechos não se sobrepõem, respeitam um espaçamento mínimo configurável entre um destaque e outro, texto bate com a transcrição original (sem o LLM reescrever a frase).
+- Prompt em `llm/prompts/plano_destaques.md`: recebe as frases e os índices das palavras e escolhe trechos curtos com carga (dado forte, virada de argumento, frase de efeito), evitando trechos consecutivos.
+- Validação em código: até cinco palavras consecutivas da mesma frase; trechos não se sobrepõem, respeitam um espaçamento mínimo configurável e o texto bate com a transcrição original.
 
 **Critérios de aceite**
 - Num roteiro de teste, os destaques escolhidos são, na checagem manual, os trechos mais fortes do texto, não escolhas aleatórias.
@@ -432,7 +437,7 @@ src/highlight_captions/
 
 **Tarefas**
 - `ass_builder.py`: para cada destaque, gerar os eventos do `.ass` com o texto revelado palavra a palavra no tempo exato de cada palavra (igual ao karaokê da Etapa 7), e manter a frase completa na tela por `duracao_permanencia` depois da última palavra, com fade de saída.
-- Estilo próprio (fonte maior, centralizado, cor/contorno configuráveis), separado do estilo da legenda contínua.
+- Estilo próprio (fonte menor, cor/contorno configuráveis e posição que evita caixas ocupadas), separado do estilo da legenda contínua.
 - Garantir que o destaque nunca atravessa a emenda entre clipes.
 
 **Critérios de aceite**
@@ -456,9 +461,15 @@ src/highlight_captions/
 
 ## Checklist Parte 4
 
-- [ ] Etapa 0: Planejamento com o LLM
+- [x] Etapa 0: Planejamento com o LLM
 - [ ] Etapa 1: Geração do `.ass` com revelação e permanência
 - [ ] Etapa 2: Exclusividade e integração na UI
+
+A implementação e os testes automatizados da Etapa 1 estão prontos. A aprovação do
+checklist aguarda a conferência perceptiva de `output/parte4_etapa1_fala_real_curta.mp4`
+pela pessoa usuária. A Etapa 2 também foi implementada e passou nos testes automatizados;
+seu critério de troca de modos no vídeo final aguarda avaliação visual pela pessoa usuária.
+(P4-C1 em `testes-pendentes.md`).
 
 ---
 
@@ -607,7 +618,7 @@ src/editing/
 
 ## Checklist Parte 5
 
-- [ ] Etapa 0: `project.json` como documento único e versionado
+- [x] Etapa 0: `project.json` como documento único e versionado
 - [ ] Etapa 1: Segmentação do render
 - [ ] Etapa 2: Substituição manual de imagens e vídeos
 - [ ] Etapa 3: Histórico e desfazer/refazer
@@ -615,3 +626,72 @@ src/editing/
 - [ ] Etapa 5: Ferramentas do agente de chat (tool calling)
 - [ ] Etapa 6: Interface de chat
 - [ ] Etapa 7: Testes de integração e robustez
+
+Etapa 0 verificada: IDs estáveis no `project.json` v2, plano criativo lido do
+documento, migração v1 com backup e keyframes/legendas registrados após render.
+Dois projetos salvos foram migrados sem falhas; os testes e a revisão independente
+aprovaram os critérios automatizáveis. A próxima etapa é a segmentação do render.
+
+---
+
+# Parte 6 — Biblioteca de Efeitos de Transição
+
+## Visão geral
+
+Ampliar os efeitos entre câmera, B-roll e outros elementos da timeline. A Parte 3 já oferece corte seco, crossfade, deslizamento e varredura; esta parte organiza uma biblioteca maior, com prévias comparáveis e controle de intensidade, sem afetar a voz.
+
+## Decisões fixas
+
+| Tema | Decisão |
+|---|---|
+| Padrão | Corte seco continua sendo o padrão para B-roll; efeitos adicionais são opcionais |
+| Áudio | Transições alteram só a imagem; a trilha de voz continua sem cortes |
+| Tempo | Cada efeito preserva a duração e a grade de quadros da timeline |
+| Segurança | Sem quadros pretos, congelados ou cutaways atravessando emendas de clipes |
+| Desempenho | Renderizar apenas os trechos necessários; mostrar o custo estimado de cada efeito |
+
+## Etapa 0: Catálogo e parâmetros
+
+**Objetivo:** definir uma lista pequena de efeitos úteis antes de expô-los no editor.
+
+**Tarefas**
+- Inventariar os efeitos do `xfade` do FFmpeg e escolher presets para fade, movimento, revelação e efeitos estilizados (ex.: zoom e blur), com nomes claros e prévias.
+- Definir duração, direção e intensidade permitidas por efeito; validar compatibilidade com clipes curtos e limites da timeline.
+
+**Critérios de aceite**
+- Cada preset tem nome, descrição, duração padrão e uma prévia que mostra entrada e saída.
+- Parâmetros inválidos são rejeitados antes do render.
+
+## Etapa 1: Render e testes dos novos efeitos
+
+**Objetivo:** implementar os presets selecionados sem perder sincronia.
+
+**Tarefas**
+- Estender `src/broll/transitions.py` com os novos efeitos e uma configuração por transição.
+- Aplicar a mesma infraestrutura a outras trocas de cena da timeline quando fizer sentido, preservando o áudio original.
+- Medir duração, contagem de quadros, latência e uso de memória com clipes sintéticos e reais.
+
+**Critérios de aceite**
+- Todos os efeitos preservam duração e áudio; nenhum gera quadro preto ou travado nas bordas.
+- Um efeito indisponível no FFmpeg instalado cai para o corte seco com aviso claro.
+
+## Etapa 2: Escolha e prévia na interface
+
+**Objetivo:** permitir comparar efeitos antes de renderizar o vídeo completo.
+
+**Tarefas**
+- Mostrar o catálogo com prévia curta da entrada e da saída, sem baixar novamente o B-roll.
+- Permitir escolher o efeito padrão do projeto e substituir o efeito de um cutaway específico, com duração/direção dentro dos limites.
+- Salvar a escolha no projeto e reaproveitá-la ao re-renderizar.
+
+**Critérios de aceite**
+- Trocar um efeito na prévia altera só a transição escolhida no render seguinte.
+- O usuário consegue comparar pelo menos três presets lado a lado com a mesma cena e áudio.
+
+---
+
+## Checklist Parte 6
+
+- [ ] Etapa 0: Catálogo e parâmetros
+- [ ] Etapa 1: Render e testes dos novos efeitos
+- [ ] Etapa 2: Escolha e prévia na interface

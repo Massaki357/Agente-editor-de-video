@@ -6,14 +6,14 @@ from fastapi import APIRouter, HTTPException
 
 from src.api.deps import Jobs, Store, ensure_idle, ensure_project
 from src.api.schemas import ImagemEdit, PlanoOut, ZoomEdit
-from src.images import load_plan, save_plan, search_images, timeline_signature
+from src.images import search_images, timeline_signature
 
 router = APIRouter(prefix="/projects/{pid}/imagens", tags=["imagens"])
 
 
 def _plano(store, pid: str):
     ensure_project(store, pid)
-    plano = load_plan(store.plan_path(pid))
+    plano = store.load_plan(pid)
     if plano is None:
         raise HTTPException(404, "sem plano criativo (rode o job 'imagens')")
     return plano
@@ -52,7 +52,7 @@ def edit_item(pid: str, item_id: int, body: ImagemEdit, store: Store, jobs: Jobs
             if body.ativa and not item.candidatos:
                 raise HTTPException(422, "o item não tem foto; mude a busca")
             item.ativa = body.ativa
-        save_plan(plano, store.plan_path(pid))
+        store.save_plan(pid, plano)
         valido = plano.assinatura == timeline_signature(store.load(pid))
         return PlanoOut(valido=valido, plano=plano)
 
@@ -67,6 +67,6 @@ def edit_zoom(pid: str, zoom_id: int, body: ZoomEdit, store: Store, jobs: Jobs) 
         if zoom is None:
             raise HTTPException(404, f"zoom {zoom_id} não existe no plano")
         zoom.ativo = body.ativo
-        save_plan(plano, store.plan_path(pid))
+        store.save_plan(pid, plano)
         valido = plano.assinatura == timeline_signature(store.load(pid))
         return PlanoOut(valido=valido, plano=plano)

@@ -38,6 +38,7 @@ from src.broll.planner import ItemBroll
 from src.cache import atomic_write_text, file_hash, read_json_cache, write_json_cache
 from src.config import Settings, get_settings
 from src.cuts import TimeMap, visible_words
+from src.highlight_captions.planner import ItemDestaque
 from src.project import Project
 from src.transcribe import Palavra
 
@@ -117,6 +118,10 @@ class PlanoImagens(BaseModel):
     itens: list[ItemImagem] = Field(default_factory=list)
     zooms: list[ItemZoom] = Field(default_factory=list)
     broll: list[ItemBroll] = Field(default_factory=list)
+    destaques: list[ItemDestaque] = Field(default_factory=list)
+    versao_destaques: int = 0  # 0 em planos antigos, que precisam ser replanejados
+    duracao_permanencia_destaques: float | None = None
+    broll_intervalo_min: float = 8.0  # densidade usada ao planejar; mudança exige nova prévia
 
     def zoom_intervals(self) -> list[tuple[float, float]]:
         return [(z.inicio, z.fim) for z in self.zooms if z.ativo]

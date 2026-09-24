@@ -9,15 +9,25 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.cache import atomic_write_text
 from src.config import get_settings
+from src.editing.project_schema import (
+    DocumentoEdicao,
+    com_plano,
+    corrigir_intervalo_destaques,
+    marcar_obsoletos,
+    normalizar_origens,
+    sincronizar_timeline,
+)
+from src.highlight_captions.style import HighlightStyle
 
 Trecho = tuple[float, float]
 
-PROJECT_VERSION = 1
+PROJECT_VERSION = 2
 
 
 class _Modelo(BaseModel):
@@ -39,6 +49,7 @@ class ClipMeta(_Modelo):
 
 
 class Clip(_Modelo):
+    id: str = Field(default_factory=lambda: f"clip_{uuid4().hex[:12]}")
     arquivo: str
     trechos: list[Trecho] = Field(default_factory=list)
     offset: float = 0.0
@@ -141,20 +152,40 @@ class Timeline(_Modelo):
 
 
 class Project(_Modelo):
-    versao: int = PROJECT_VERSION
+    versao: int = Field(PROJECT_VERSION, ge=1, le=PROJECT_VERSION)
     timeline: Timeline = Field(default_factory=Timeline)
+    documento: DocumentoEdicao = Field(default_factory=DocumentoEdicao)
     estabilizar: bool = False
     suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = Field(
         default_factory=lambda: get_settings().stabilize_smoothing
     )
+    broll: bool = False
+    broll_intervalo_min: float = Field(8.0, ge=8.0, le=30.0)
+    broll_transition: Literal["hard_cut", "crossfade", "slide", "wipe"] = "hard_cut"
+    legendas_continuas: bool = True
+    legendas_destaque: bool = False
+    estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
+
+    @model_validator(mode="after")
+    def _legendas_exclusivas(self) -> Project:
+        if self.legendas_continuas and self.legendas_destaque:
+            raise ValueError("Escolha legenda contínua ou legendas de destaque, nunca as duas")
+        ids = [clip.id for clip in self.timeline.clipes]
+        if len(ids) != len(set(ids)):
+            raise ValueError("ids de clipes duplicados no projeto")
+        return self
 
     def salvar(self, path: str | Path) -> Path:
         """Grava o JSON; caminhos de clipes dentro da pasta do projeto viram relativos."""
         path = Path(path)
         base = path.parent.resolve()
-        data = self.model_copy(deep=True)
+        data = Project.model_validate(self.model_dump())
+        data.timeline.recalcular_offsets()
+        data.documento = marcar_obsoletos(normalizar_origens(data.documento), data.timeline)
         for clip in data.timeline.clipes:
             clip.arquivo = _relativo(clip.arquivo, base)
+        data.documento = sincronizar_timeline(data.documento, data.timeline)
+        self.documento = data.documento
         atomic_write_text(path, data.model_dump_json(indent=2))
         return path
 
@@ -162,12 +193,32 @@ class Project(_Modelo):
     def carregar(cls, path: str | Path) -> Project:
         """Lê o JSON; caminhos relativos são resolvidos a partir da pasta do projeto."""
         path = Path(path)
-        project = cls.model_validate_json(path.read_text(encoding="utf-8"))
+        original = path.read_text(encoding="utf-8")
+        project = cls.model_validate_json(original)
         base = path.parent.resolve()
         for clip in project.timeline.clipes:
             if not Path(clip.arquivo).is_absolute():
                 clip.arquivo = str(base / clip.arquivo)
         project.timeline.recalcular_offsets()
+        if project.versao < PROJECT_VERSION:
+            backup = path.with_name("project.v1.json")
+            if not backup.exists():
+                atomic_write_text(backup, original)
+            from src.images import load_plan
+
+            plano = load_plan(path.parent / "plano_imagens.json")
+            if plano is not None:
+                project.documento = com_plano(project.documento, plano)
+            project.versao = PROJECT_VERSION
+            project.salvar(path)
+        else:
+            project.documento = sincronizar_timeline(
+                marcar_obsoletos(
+                    corrigir_intervalo_destaques(normalizar_origens(project.documento)),
+                    project.timeline,
+                ),
+                project.timeline,
+            )
         return project
 
 

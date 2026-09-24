@@ -13,6 +13,7 @@ import {
   type ProjectSummary,
 } from '../api'
 import { usePlano } from '../usePlano'
+import { useBroll } from '../useBroll'
 import AvisoBox from './AvisoBox'
 import type { Aba } from './ClipDetails'
 import ClipStrip from './ClipStrip'
@@ -61,6 +62,7 @@ export default function Workspace({
   const tratados = useRef(new Set<string>()) // jobs cujo fim já recarregou o projeto
 
   const plano = usePlano(projetoId, versaoPlano)
+  const broll = useBroll(projetoId, versaoPlano)
 
   const carregar = useCallback(async () => {
     try {
@@ -102,9 +104,9 @@ export default function Workspace({
         if (j && !jobAtivo(j) && !tratados.current.has(j.id)) {
           tratados.current.add(j.id)
           setCancelando((c) => c.filter((id) => id !== j.id))
-          if (j.tipo === 'imagens' || j.tipo === 'gerar') setVersaoPlano((v) => v + 1)
+          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar') setVersaoPlano((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
-          if (j.status === 'concluido' && j.tipo === 'imagens') setModo('plano')
+          if (j.status === 'concluido' && (j.tipo === 'imagens' || j.tipo === 'broll')) setModo('plano')
           if (j.status === 'concluido' && j.tipo === 'gerar') setModo('resultado')
           await carregar()
           onAlterado()
@@ -197,6 +199,7 @@ export default function Workspace({
         onAba={setAba}
         jobGerar={jobGerar}
         plano={plano}
+        broll={broll}
         bloqueado={bloqueado}
       />
 
@@ -220,7 +223,7 @@ export default function Workspace({
       <aside className="lateral" aria-label="Opções e job">
         <div className="lateral-rolagem">
           <OptionsPanel
-            key={config ? 'config' : 'sem-config'}
+            key={`${config ? 'config' : 'sem-config'}-${recarga}`}
             config={config}
             opcoesProjeto={projeto}
             bloqueado={bloqueado}
@@ -233,6 +236,7 @@ export default function Workspace({
             <ErrorBox erro={erro} onClose={() => setErro(null)} />
             {/* sem plano carregado não há aba do palco: o erro dele aparece aqui */}
             {plano.dados === null && <ErrorBox erro={plano.erro} />}
+            {broll.dados === null && <ErrorBox erro={broll.erro} />}
           </div>
           <AvisoBox avisos={avisos} onFechar={() => jobAtual && setAvisosOcultos(jobAtual.id)} />
           <JobPanel

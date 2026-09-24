@@ -93,6 +93,9 @@ def test_health_config_and_doctor(client):
     assert corpo["opcoes_padrao"]["parametros_audio"]["aggressiveness"] == 0.5
     assert corpo["opcoes_padrao"]["estabilizar"] is False
     assert corpo["opcoes_padrao"]["suavizacao_estabilizacao"] == "medio"
+    assert corpo["opcoes_padrao"]["broll"] is False
+    assert corpo["opcoes_padrao"]["broll_intervalo_min"] == 8.0
+    assert corpo["opcoes_padrao"]["broll_transition"] == "hard_cut"
     doctor = client.get("/api/doctor").json()
     assert {"nome", "status", "detalhe"} <= set(doctor[0])
     assert any(c["nome"] == "ffmpeg" for c in doctor)
@@ -107,8 +110,13 @@ def test_stabilization_options_are_saved_in_project_json_and_reused(client, vide
 
     def submit(self, projeto_id, tipo, opcoes=None):
         captured.append(opcoes)
-        return Job(id=f"fake{len(captured)}", projeto_id=projeto_id, tipo=tipo,
-                   opcoes=opcoes or {}, criado=datetime.now(UTC))
+        return Job(
+            id=f"fake{len(captured)}",
+            projeto_id=projeto_id,
+            tipo=tipo,
+            opcoes=opcoes or {},
+            criado=datetime.now(UTC),
+        )
 
     monkeypatch.setattr(JobManager, "submit", submit)
     r = client.post(
@@ -126,9 +134,80 @@ def test_stabilization_options_are_saved_in_project_json_and_reused(client, vide
 
     r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"})
     assert r.status_code == 202, r.text
-    assert captured[1] == {"estabilizar": True, "suavizacao_estabilizacao": "forte"}
+    assert {key: captured[1][key] for key in (
+        "estabilizar", "suavizacao_estabilizacao", "broll", "broll_intervalo_min",
+        "broll_transition"
+    )} == {
+        "estabilizar": True,
+        "suavizacao_estabilizacao": "forte",
+        "broll": False,
+        "broll_intervalo_min": 8.0,
+        "broll_transition": "hard_cut",
+    }
+    assert captured[1]["legendas_continuas"] is True
+    assert captured[1]["legendas_destaque"] is False
     path = get_settings().data_dir / "projects" / pid / "project.json"
     assert '"estabilizar": true' in path.read_text(encoding="utf-8")
+
+    invalido = client.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "tipo": "gerar",
+            "opcoes": {"legendas_continuas": True, "legendas_destaque": True},
+        },
+    )
+    assert invalido.status_code == 422
+    assert "nunca as duas" in invalido.text
+
+    destaque = client.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "tipo": "gerar",
+            "opcoes": {"legendas_continuas": False, "legendas_destaque": True},
+        },
+    )
+    assert destaque.status_code == 202
+    salvo = client.get(f"/api/projects/{pid}").json()
+    assert salvo["legendas_continuas"] is False
+    assert salvo["legendas_destaque"] is True
+    assert client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).status_code == 202
+    assert captured[-1]["legendas_destaque"] is True
+
+
+def test_broll_options_are_saved_and_reused(client, video_dir, monkeypatch):
+    from datetime import UTC, datetime
+
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(video_dir)})
+    captured = []
+
+    def submit(self, projeto_id, tipo, opcoes=None):
+        captured.append(opcoes)
+        return Job(
+            id=f"fake{len(captured)}",
+            projeto_id=projeto_id,
+            tipo=tipo,
+            opcoes=opcoes or {},
+            criado=datetime.now(UTC),
+        )
+
+    monkeypatch.setattr(JobManager, "submit", submit)
+    options = {"broll": True, "broll_intervalo_min": 12, "broll_transition": "wipe"}
+    r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "broll", "opcoes": options})
+    assert r.status_code == 202, r.text
+    project = client.get(f"/api/projects/{pid}").json()
+    assert {key: project[key] for key in options} == options
+    assert {key: captured[0][key] for key in options} == options
+    assert client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"}).status_code == 202
+    assert {key: captured[1][key] for key in options} == options
+    saved = get_settings().data_dir / "projects" / pid / "project.json"
+    assert '"broll_transition": "wipe"' in saved.read_text(encoding="utf-8")
+    for invalid in (-1, 7.99, 30.01):
+        r = client.post(
+            f"/api/projects/{pid}/jobs",
+            json={"tipo": "broll", "opcoes": {"broll_intervalo_min": invalid}},
+        )
+        assert r.status_code == 422
 
 
 # ------------------------------------------------------------------ projetos
@@ -458,6 +537,271 @@ def test_invalid_caption_color_is_rejected(client, video_dir):
 
 
 # ------------------------------------------------------------------ Etapa 8: imagens
+
+
+def test_broll_preview_approval_swap_and_removal_reuse_the_plan(client, tmp_path, monkeypatch):
+    """A prévia permite revisar sem nova chamada ao LLM; remoção volta à câmera."""
+    import src.api.routes.broll as broll_routes
+    import src.broll.preview as broll_preview
+    from src.broll.planner import ItemBroll
+    from src.broll.source import PreparedBroll
+    from src.config import Settings
+    from src.images import ItemImagem, PlanoImagens, timeline_signature
+
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=160x288:r=30:d=4",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=4",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            str(inputs / "camera.mp4"),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    cache = tmp_path / "cache" / "broll_video"
+    cache.mkdir(parents=True)
+    blue = cache / "blue.mp4"
+    green = cache / "green.mp4"
+    for color, dest in (("blue", blue), ("green", green)):
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostdin",
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=160x288:r=30:d=1.5",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                str(dest),
+            ],
+            capture_output=True,
+            check=True,
+        )
+    pid = novo_projeto(client)
+    imported = client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(inputs)})
+    assert imported.status_code == 200, imported.text
+    fake_settings = Settings(cache_dir=tmp_path / "cache", output_width=160, output_height=288)
+    monkeypatch.setattr(pipeline, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(broll_routes, "get_settings", lambda: fake_settings)
+    monkeypatch.setattr(pipeline, "face_tracks", lambda *a, **k: {})
+    monkeypatch.setattr(pipeline, "reframe_cameras", lambda *a, **k: {})
+    calls = {"plan": 0, "video": 0}
+
+    def plan(project, previous, transcriber, params=None, settings=None):
+        calls["plan"] += 1
+        assert params.intervalo_min in (8.0, 12.0)
+        assert previous.itens == []  # imagens desligadas não bloqueiam o planejamento
+        updated = previous.model_copy(deep=True)
+        updated.broll = [
+            ItemBroll(
+                id=0,
+                clipe=0,
+                trecho_inicio_palavra=0,
+                trecho_fim_palavra=3,
+                texto="colhemos café",
+                query="coffee harvest",
+                inicio=1,
+                duracao_max=1.5,
+                motivo="mostra colheita",
+            )
+        ]
+        return updated
+
+    def prepare(item, settings=None, params=None):
+        calls["video"] += 1
+        path = green if item.query == "green field" else blue
+        return PreparedBroll(
+            arquivo=path,
+            query=item.query,
+            duracao=1.5,
+            fonte="pexels",
+            id="green" if path == green else "blue",
+            pagina="https://example.com/video",
+        )
+
+    monkeypatch.setattr(tasks, "plan_broll_project", plan)
+    monkeypatch.setattr(broll_preview, "prepare_item", prepare)
+    options = {
+        "cortes": False,
+        "imagens": False,
+        "zooms": False,
+        "legendas": False,
+        "reenquadrar": True,
+        "broll": True,
+    }
+    output = client.app.state.store.saida_dir(pid) / "final.mp4"
+
+    def center_rgb():
+        return tuple(
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-nostdin",
+                    "-loglevel",
+                    "error",
+                    "-ss",
+                    "1.7",
+                    "-i",
+                    str(output),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "crop=2:2:80:144",
+                    "-f",
+                    "rawvideo",
+                    "-pix_fmt",
+                    "rgb24",
+                    "-",
+                ],
+                capture_output=True,
+                check=True,
+            ).stdout[:3]
+        )
+
+    assert client.get(f"/api/projects/{pid}/broll").status_code == 404
+    store = client.app.state.store
+    store.save_plan(
+        pid,
+        PlanoImagens(
+            assinatura=timeline_signature(store.load(pid)),
+            itens=[
+                ItemImagem(
+                    id=0,
+                    indice=0,
+                    clipe=0,
+                    palavra="café",
+                    query="coffee",
+                    inicio=1,
+                    duracao=1.5,
+                )
+            ],
+        ),
+    )
+    job = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "broll", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert job["status"] == "concluido", job
+    assert len(store.load_plan(pid).itens) == 1
+    preview = client.get(f"/api/projects/{pid}/broll").json()
+    assert preview["valido"] and preview["itens"][0]["texto"] == "colhemos café"
+    assert preview["itens"][0]["duracao"] == 1.5
+    assert preview["itens"][0]["aprovado"] is False
+    assert client.get(preview["itens"][0]["video_url"]).status_code == 200
+    assert client.patch(f"/api/projects/{pid}/broll/0", json={"aprovado": True}).status_code == 200
+
+    first = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert first["status"] == "concluido", first
+    assert first["resultado"]["broll"] == 1
+    assert center_rgb()[2] > 180  # azul sobre a câmera vermelha
+    assert calls["plan"] == 1 and calls["video"] == 1
+
+    disabled = client.patch(f"/api/projects/{pid}/broll/0", json={"ativo": False})
+    assert disabled.status_code == 200 and disabled.json()["itens"][0]["aprovado"] is False
+    second = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert second["status"] == "concluido", second
+    assert second["resultado"]["broll"] == 0
+    assert center_rgb()[0] > 180  # a câmera voltou
+
+    swapped = client.patch(
+        f"/api/projects/{pid}/broll/0", json={"query": "green field", "ativo": True}
+    )
+    assert swapped.status_code == 200
+    assert swapped.json()["itens"][0]["video_url"] is None
+    assert client.patch(f"/api/projects/{pid}/broll/0", json={"aprovado": True}).status_code == 422
+    job = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "broll", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert job["status"] == "concluido", job
+    assert calls["plan"] == 1 and calls["video"] == 2
+    assert client.patch(f"/api/projects/{pid}/broll/0", json={"aprovado": True}).status_code == 200
+    third = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert third["status"] == "concluido", third
+    assert third["resultado"]["broll"] == 1
+    assert center_rgb()[1] > 80  # nova busca trocou o vídeo pelo verde
+    assert calls["plan"] == 1 and calls["video"] == 2
+
+    sparser = {**options, "broll_intervalo_min": 12}
+    refreshed = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "broll", "opcoes": sparser}).json()[
+            "id"
+        ],
+    )
+    assert refreshed["status"] == "concluido", refreshed
+    assert calls["plan"] == 2
+    assert client.get(f"/api/projects/{pid}/broll").json()["itens"][0]["aprovado"] is False
+
+    def slow_job(store, job, ctx):
+        for k in range(100):
+            ctx.step("lento", k / 100)
+            time.sleep(0.02)
+        return {}
+
+    monkeypatch.setattr(tasks, "gerar", slow_job)
+    jid = client.post(
+        f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": options}
+    ).json()["id"]
+    time.sleep(0.2)
+    assert client.patch(f"/api/projects/{pid}/broll/0", json={"ativo": False}).status_code == 409
+    client.post(f"/api/jobs/{jid}/cancel")
+    esperar(client, jid)
+
+    project = client.app.state.store.load(pid)
+    project.timeline.substituir_trechos(0, [(0, 3)])
+    client.app.state.store.save(pid, project)
+    obsolete = client.get(f"/api/projects/{pid}/broll").json()
+    assert obsolete["valido"] is False and obsolete["itens"][0]["video_url"] is None
+    assert client.get(f"/api/projects/{pid}/broll/0/video").status_code == 409
+    assert client.patch(f"/api/projects/{pid}/broll/0", json={"ativo": False}).status_code == 409
 
 
 def _fake_images(monkeypatch, tmp_path, zooms=False):

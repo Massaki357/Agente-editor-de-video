@@ -22,14 +22,24 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.audio.optimize import AudioParams, cached_audio
 from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
 from src.config import Settings, get_settings
 from src.cuts import RESTO_MAX, CutParams, TimeMap, apply_cuts, visible_words  # noqa: F401
+from src.editing.project_schema import (
+    assinatura_timeline,
+    com_crops,
+    com_legendas,
+    com_plano,
+    eventos_ass,
+    keyframes_crop,
+)
 from src.face import FaceTrack, track_faces
+from src.highlight_captions.ass_builder import HighlightStyle, write_highlights_project
+from src.highlight_captions.planner import DestaqueParams, plan_highlights_project
 from src.images import ImageParams, PlanoImagens, build_overlays, plan_images, timeline_signature
 from src.project import Project
 from src.reframe import CameraPath, ZoomParams, camera_path, plan_zooms, zoom_curve
@@ -58,17 +68,40 @@ class PipelineOptions(BaseModel):
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
-    legendas: bool = True  # legendas palavra por palavra queimadas no vídeo
+    legendas_continuas: bool = True
+    legendas_destaque: bool = False
     estilo_legenda: CaptionStyle = CaptionStyle()
+    estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
     imagens: bool = True  # imagens sobre a fala (LLM escolhe as palavras; precisa de chave)
     sticker: bool = False  # recorta o fundo das imagens (rembg; 1º uso baixa o modelo)
     parametros_imagens: ImageParams = ImageParams()
     llm_model: str | None = None  # modelo do LLM; None = o do .env (`LLM_MODEL`)
     zooms: bool = True  # zooms no rosto em momentos de ênfase (LLM); só com `reenquadrar`
     parametros_zoom: ZoomParams = ZoomParams()
+    broll: bool = False  # cutaways aprovados substituem a câmera em frases inteiras
+    broll_intervalo_min: float = Field(8.0, ge=8.0, le=30.0)
+    broll_transition: Literal["hard_cut", "crossfade", "slide", "wipe"] = "hard_cut"
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legenda_antiga(cls, values: object) -> object:
+        """Aceita `legendas` de jobs antigos sem gravar dois nomes no formato novo."""
+        if isinstance(values, dict) and "legendas" in values:
+            values = values.copy()
+            antiga = values.pop("legendas")
+            if "legendas_continuas" in values and values["legendas_continuas"] != antiga:
+                raise ValueError("legendas e legendas_continuas discordam")
+            values["legendas_continuas"] = antiga
+        return values
+
+    @model_validator(mode="after")
+    def _legendas_exclusivas(self) -> PipelineOptions:
+        if self.legendas_continuas and self.legendas_destaque:
+            raise ValueError("Escolha legenda contínua ou legendas de destaque, nunca as duas")
+        return self
 
     def llm_settings(self) -> Settings:
         """Configurações com o modelo escolhido nesta execução."""
@@ -231,23 +264,45 @@ def image_plan(
     on_step: StepCallback = _noop,
 ) -> PlanoImagens:
     """O plano salvo, se ainda vale para os trechos atuais; senão, um novo (LLM em cache)."""
-    if plano is not None and plano.assinatura == timeline_signature(project):
+    valido = plano is not None and plano.assinatura == timeline_signature(project)
+    if valido:
         log.info(
-            "Usando o plano criativo salvo (%d imagens, %d zooms), sem chamar o LLM.",
+            "Usando o plano criativo salvo (%d imagens, %d zooms).",
             len(plano.itens),
             len(plano.zooms),
         )
-        return plano
-    if plano is not None:
+        novo = plano
+    elif plano is not None:
         log.info("Os trechos mudaram desde o plano criativo salvo: refazendo o plano.")
-    on_step("imagens", 0.0)
-    novo = plan_images(
-        project,
-        transcriber=lambda path: transcribe_clip(path),
-        params=options.parametros_imagens,
-        settings=options.llm_settings(),
-    )
-    on_step("imagens", 1.0)
+    if not valido:
+        if options.imagens or (options.zooms and options.reenquadrar):
+            on_step("imagens", 0.0)
+            novo = plan_images(
+                project,
+                transcriber=lambda path: transcribe_clip(path),
+                params=options.parametros_imagens,
+                settings=options.llm_settings(),
+            )
+            on_step("imagens", 1.0)
+        else:
+            novo = PlanoImagens(assinatura=timeline_signature(project))
+    if options.legendas_destaque and (
+        novo.versao_destaques < 2
+        or novo.duracao_permanencia_destaques
+        != options.estilo_destaque.duracao_permanencia
+        or any(len(item.texto.split()) > 5 for item in novo.destaques)
+    ):
+        on_step("destaques", 0.0)
+        novo = plan_highlights_project(
+            project,
+            novo,
+            transcriber=lambda path: transcribe_clip(path),
+            params=DestaqueParams(
+                duracao_permanencia=options.estilo_destaque.duracao_permanencia
+            ),
+            settings=options.llm_settings(),
+        )
+        on_step("destaques", 1.0)
     return novo
 
 
@@ -290,7 +345,7 @@ def render_project(
         primeiro = next((c for c in timeline.clipes if c.trechos), timeline.clipes[0])
         meta = primeiro.meta or probe_clip(primeiro.arquivo)
         size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
-    if options.reenquadrar or options.imagens:
+    if options.reenquadrar or options.imagens or options.legendas_destaque:
         t0 = time.perf_counter()
         tracks = face_tracks(video_project, on_step)
         if options.reenquadrar:
@@ -300,7 +355,7 @@ def render_project(
     output.parent.mkdir(parents=True, exist_ok=True)
     legendas = None
     estilo = options.estilo_legenda.for_output(size)
-    if options.legendas:
+    if options.legendas_continuas:
         t0 = time.perf_counter()
         legendas = make_captions(project, output.with_suffix(".ass"), options, size, on_step)
         tempos["legendas"] = time.perf_counter() - t0
@@ -310,14 +365,33 @@ def render_project(
         plano_usado = (
             plano if plano is not None and plano.assinatura == timeline_signature(project) else None
         )
+        itens_broll = []
         zoom = None
         n_zooms = 0
-        if options.imagens or usa_zoom:
+        if options.imagens or usa_zoom or options.legendas_destaque:
             t0 = time.perf_counter()
             plano_usado = image_plan(project, options, plano, on_step)
+            if options.broll and options.reenquadrar:
+                from src.broll.transitions import select_items
+
+                imagens_ativas = (
+                    [(item.inicio, item.fim) for item in plano_usado.itens if item.ativa]
+                    if options.imagens
+                    else []
+                )
+                itens_broll = select_items(
+                    plano_usado.broll, imagens_ativas, options.broll_intervalo_min
+                )
             if usa_zoom and cameras:
+                zoom_intervals = [
+                    interval
+                    for interval in plano_usado.zoom_intervals()
+                    if not any(
+                        interval[0] < item.fim and item.inicio < interval[1] for item in itens_broll
+                    )
+                ]
                 zooms = plan_zooms(
-                    plano_usado.zoom_intervals(),
+                    zoom_intervals,
                     TimeMap(timeline).to_src,
                     cameras,
                     options.parametros_zoom,
@@ -337,13 +411,48 @@ def render_project(
                 )
             tempos["plano criativo"] = time.perf_counter() - t0
 
+        if options.legendas_destaque and plano_usado is not None and plano_usado.destaques:
+            t0 = time.perf_counter()
+            caixas_rosto = face_boxes_fn(video_project, tracks, cameras, size, zoom=zoom)
+
+            def caixas_ocupadas(t0_out: float, t1_out: float) -> list[tuple[int, int, int, int]]:
+                caixas = caixas_rosto(t0_out, t1_out)
+                caixas.extend(
+                    (item.x, item.y, item.w, item.h)
+                    for item in overlays
+                    if item.inicio < t1_out and t0_out < item.fim
+                )
+                return caixas
+
+            legendas = write_highlights_project(
+                project,
+                plano_usado,
+                transcriber=lambda path: transcribe_clip(path),
+                path=output.with_suffix(".ass"),
+                style=options.estilo_destaque,
+                saida=size,
+                fps=settings.output_fps,
+                caixas_ocupadas=caixas_ocupadas,
+            )
+            tempos["legendas"] = time.perf_counter() - t0
+
         cutaways = []
-        if plano_usado is not None and plano_usado.broll:
+        if plano_usado is not None and options.broll:
             if options.reenquadrar:
-                from src.broll.transitions import prepare_cutaways
+                from src.broll.transitions import prepare_cutaways, select_items
+
+                if not itens_broll:
+                    imagens_ativas = (
+                        [(item.inicio, item.fim) for item in plano_usado.itens if item.ativa]
+                        if options.imagens
+                        else []
+                    )
+                    itens_broll = select_items(
+                        plano_usado.broll, imagens_ativas, options.broll_intervalo_min
+                    )
 
                 t0 = time.perf_counter()
-                cutaways = prepare_cutaways(plano_usado.broll, settings)
+                cutaways = prepare_cutaways(itens_broll, settings)
                 tempos["B-roll"] = time.perf_counter() - t0
             else:
                 log.warning("B-roll exige saída vertical reenquadrada; mantendo a câmera.")
@@ -367,8 +476,20 @@ def render_project(
             zoom=zoom,
             audios=limpos,
             broll=cutaways,
+            broll_transition=options.broll_transition,
         )
         tempos["render"] = time.perf_counter() - t0
+
+    if plano_usado is not None:
+        project.documento = com_plano(project.documento, plano_usado)
+    project.documento = com_crops(
+        project.documento, keyframes_crop(project.timeline, cameras or {})
+    )
+    project.documento = com_legendas(
+        project.documento,
+        eventos_ass(legendas) if options.legendas_continuas else [],
+    )
+    project.documento.assinatura_timeline = assinatura_timeline(project.timeline)
 
     result = PipelineResult(
         avisos=avisos_audio,
@@ -530,6 +651,9 @@ def run(
         margem=params.margem,
         ruido_db=params.ruido_db,
     )
+    project.legendas_continuas = options.legendas_continuas
+    project.legendas_destaque = options.legendas_destaque
+    project.estilo_destaque = options.estilo_destaque
     render_project(project, output, options)
     log.info("Projeto salvo em %s", project.salvar(output.with_suffix(".project.json")))
     return project

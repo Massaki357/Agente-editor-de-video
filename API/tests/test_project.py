@@ -117,6 +117,43 @@ def test_save_and_load_roundtrip_with_relative_paths(tmp_path):
     assert loaded.timeline.imagens == project.timeline.imagens
 
 
+def test_highlight_modes_are_exclusive_when_loading_and_saving(tmp_path):
+    path = tmp_path / "project.json"
+    selected = Project(legendas_continuas=False, legendas_destaque=True)
+    selected.salvar(path)
+    loaded = Project.carregar(path)
+    assert loaded.legendas_destaque is True and loaded.legendas_continuas is False
+
+    with pytest.raises(ValidationError, match="nunca as duas"):
+        Project(legendas_continuas=True, legendas_destaque=True)
+
+    loaded.legendas_continuas = True  # atribuição direta também não pode passar pelo save
+    with pytest.raises(ValidationError, match="nunca as duas"):
+        loaded.salvar(path)
+    assert Project.carregar(path).legendas_continuas is False
+
+    invalido = json.loads(path.read_text(encoding="utf-8"))
+    invalido["legendas_continuas"] = True
+    path.write_text(json.dumps(invalido), encoding="utf-8")
+    with pytest.raises(ValidationError, match="nunca as duas"):
+        Project.carregar(path)
+
+
+def test_pipeline_cli_saves_selected_caption_mode(tmp_path, monkeypatch):
+    from src import pipeline
+
+    project = Project(timeline=Timeline(clipes=[Clip(arquivo="1.mp4", trechos=[(0, 1)])]))
+    monkeypatch.setattr(pipeline, "build_project", lambda _entradas: project)
+    monkeypatch.setattr(pipeline, "render_project", lambda *_args: None)
+    output = tmp_path / "saida.mp4"
+
+    pipeline.run([tmp_path / "1.mp4"], output, legendas=False)
+
+    salvo = Project.carregar(output.with_suffix(".project.json"))
+    assert salvo.legendas_continuas is False
+    assert salvo.legendas_destaque is False
+
+
 def test_save_keeps_absolute_path_outside_project_folder(tmp_path):
     outside = tmp_path / "outros" / "a.mp4"
     project = Project(timeline=Timeline(clipes=[Clip(arquivo=str(outside), trechos=[(0, 1)])]))

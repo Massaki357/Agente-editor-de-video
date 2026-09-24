@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.highlight_captions.style import HighlightStyle
 from src.images import PlanoImagens
 from src.pipeline import PipelineOptions
 
@@ -28,9 +29,9 @@ class Reorder(BaseModel):
 
 
 class JobCreate(BaseModel):
-    tipo: Literal["transcrever", "rosto", "imagens", "gerar"]
+    tipo: Literal["transcrever", "rosto", "imagens", "broll", "gerar"]
     opcoes: PipelineOptions | None = Field(
-        None, description="para 'rosto', 'imagens' e 'gerar': opções do pipeline"
+        None, description="para 'rosto', 'imagens', 'broll' e 'gerar': opções do pipeline"
     )
 
 
@@ -67,6 +68,12 @@ class ProjectOut(ProjectSummary):
     clipes: list[ClipOut]
     estabilizar: bool = False
     suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = "medio"
+    broll: bool = False
+    broll_intervalo_min: float = 8.0
+    broll_transition: Literal["hard_cut", "crossfade", "slide", "wipe"] = "hard_cut"
+    legendas_continuas: bool = True
+    legendas_destaque: bool = False
+    estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
     duracao_total: float
     arquivos: list[str] = Field(description="arquivos gerados em saida/")
     job_ativo: str | None
@@ -126,3 +133,30 @@ class ZoomEdit(BaseModel):
 class PlanoOut(BaseModel):
     valido: bool = Field(description="False se os trechos mudaram desde o plano")
     plano: PlanoImagens
+
+
+class BrollEdit(BaseModel):
+    """Decisão de prévia; nova busca acontece no job, nunca nesta requisição."""
+
+    query: str | None = Field(None, min_length=2, max_length=80)
+    ativo: bool | None = None
+    aprovado: bool | None = None
+
+
+class BrollItemOut(BaseModel):
+    id: int
+    texto: str
+    query: str
+    inicio: float
+    duracao: float
+    ativo: bool
+    aprovado: bool
+    fonte: str | None = None
+    autor: str | None = None
+    pagina: str | None = None
+    video_url: str | None = None
+
+
+class BrollPreviewOut(BaseModel):
+    valido: bool
+    itens: list[BrollItemOut]

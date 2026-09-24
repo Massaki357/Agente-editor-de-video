@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Sequence
+from typing import TYPE_CHECKING, Literal
 
 from src.broll.planner import ItemBroll
 from src.broll.source import prepare_item
@@ -15,7 +16,12 @@ if TYPE_CHECKING:
     from src.render import Segment
 
 log = logging.getLogger(__name__)
-Transition = Literal["hard_cut", "crossfade"]
+Transition = Literal["hard_cut", "crossfade", "slide", "wipe"]
+XFADE_EFFECTS = {
+    "crossfade": ("fade", "fade"),
+    "slide": ("slideleft", "slideright"),
+    "wipe": ("wipeleft", "wiperight"),
+}
 
 
 @dataclass(frozen=True)
@@ -28,10 +34,34 @@ class Cutaway:
     clipe: int
 
 
+def select_items(
+    items: Sequence[ItemBroll],
+    images: Sequence[tuple[float, float]],
+    intervalo_min: float = 8.0,
+) -> list[ItemBroll]:
+    """Seleciona aprovados respeitando imagens, densidade e retorno à câmera."""
+    chosen: list[ItemBroll] = []
+    for item in sorted(items, key=lambda value: value.inicio):
+        if not item.ativo or not item.aprovado:
+            continue
+        if any(item.inicio < fim and inicio < item.fim for inicio, fim in images):
+            log.info("B-roll '%s' pulado por sobreposição com imagem.", item.query)
+            continue
+        if chosen and (
+            item.inicio - chosen[-1].inicio < intervalo_min or item.inicio - chosen[-1].fim < 1.0
+        ):
+            log.info("B-roll '%s' pulado pelo limite de densidade.", item.query)
+            continue
+        chosen.append(item)
+    return chosen
+
+
 def prepare_cutaways(items: Sequence[ItemBroll], settings: Settings) -> list[Cutaway]:
     """Busca só itens ativos; sem resultado, mantém a câmera naquele intervalo."""
     cutaways = []
     for item in items:
+        if not item.ativo or not item.aprovado:
+            continue
         prepared = prepare_item(item, settings=settings)
         if prepared is None:
             log.warning("B-roll '%s' indisponível; mantendo a câmera.", item.query)
@@ -41,11 +71,14 @@ def prepare_cutaways(items: Sequence[ItemBroll], settings: Settings) -> list[Cut
 
 
 def validate_cutaways(
-    cutaways: Sequence[Cutaway], segments: Sequence[Segment], fps: int, transition: Transition,
+    cutaways: Sequence[Cutaway],
+    segments: Sequence[Segment],
+    fps: int,
+    transition: Transition,
     fade: float,
 ) -> list[tuple[int, int, Path]]:
     """Converte para frames e impede sobreposição ou travessia de uma emenda."""
-    if transition not in ("hard_cut", "crossfade"):
+    if transition != "hard_cut" and transition not in XFADE_EFFECTS:
         raise ValueError(f"transição de B-roll inválida: {transition}")
     if not 0 < fade <= 0.5:
         raise ValueError("fade do B-roll precisa estar entre 0 e 0,5 s")
@@ -67,15 +100,15 @@ def validate_cutaways(
         if not cut.arquivo.is_file():
             raise ValueError(f"arquivo de B-roll ausente: {cut.arquivo}")
         result.append((start, end, cut.arquivo))
-    if transition == "crossfade":
+    if transition != "hard_cut":
         frames_fade = round(fade * fps)
         if frames_fade < 1 or any(end - start <= 2 * frames_fade for start, end, _ in result):
-            raise ValueError("cutaway curto demais para o crossfade")
+            raise ValueError("cutaway curto demais para a transição")
         if any(
             current[0] - previous[1] < 2 * frames_fade
-            for previous, current in zip(result, result[1:])
+            for previous, current in zip(result, result[1:], strict=False)
         ):
-            raise ValueError("intervalo entre cutaways curto demais para o crossfade")
+            raise ValueError("intervalo entre cutaways curto demais para a transição")
     return result
 
 
@@ -96,7 +129,7 @@ def apply_cutaways(
     if not validated:
         return camera
     total = sum(seg.frames for seg in segments)
-    f = round(fade * fps) if transition == "crossfade" else 0
+    f = round(fade * fps) if transition != "hard_cut" else 0
     # [câmera, B-roll, câmera, ...]; no fade as pontas da câmera se sobrepõem
     # ao B-roll, e xfade mantém exatamente o número original de quadros.
     parts: list[tuple[int, int, int]] = []
@@ -123,20 +156,41 @@ def apply_cutaways(
     else:
         elapsed = parts[0][2] - parts[0][1]
         last = "p0"
+        entering, leaving = XFADE_EFFECTS[transition]
         for index in range(1, len(parts)):
             offset = (elapsed - f) / fps
             target = "v" if index == len(parts) - 1 else f"x{index}"
+            effect = entering if index % 2 else leaving
             graph.append(
-                f"[{last}][p{index}]xfade=transition=fade:duration={f / fps:.6f}:"
+                f"[{last}][p{index}]xfade=transition={effect}:duration={f / fps:.6f}:"
                 f"offset={offset:.6f}[{target}]"
             )
             elapsed += parts[index][2] - parts[index][1] - f
             last = target
     cmd += [
-        "-filter_complex", ";".join(graph), "-map", "[v]", "-map", "0:a:0",
-        "-frames:v", str(total), "-c:v", "libx264", "-preset", "veryfast",
-        "-crf", "17", "-pix_fmt", "yuv420p", "-r", str(fps),
-        "-c:a", "copy", "-movflags", "+faststart", str(output),
+        "-filter_complex",
+        ";".join(graph),
+        "-map",
+        "[v]",
+        "-map",
+        "0:a:0",
+        "-frames:v",
+        str(total),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "17",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(fps),
+        "-c:a",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(output),
     ]
     _run_ffmpeg(cmd, "cutaways de B-roll")
     return output

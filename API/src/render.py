@@ -145,6 +145,9 @@ def render_timeline(
     deslocamento < 1 ms), mas pode encurtar o fim em algumas dezenas de ms — o `apad`
     de cada trecho completa com silêncio.
 
+    `broll`: cutaways já preparados em t_out, aplicados depois do reenquadramento
+    e do zoom. A transição afeta só o vídeo; a voz segue do áudio concatenado.
+
     `size=None` usa o tamanho de exibição do primeiro clipe (arredondado para par).
     `work_dir` guarda os intermediários (útil para depuração); sem ele, usa uma
     pasta temporária apagada no fim. `progress(prontos, total)` é chamado a cada
@@ -182,7 +185,11 @@ def render_timeline(
             from src.broll.transitions import apply_cutaways
 
             concatenated = apply_cutaways(
-                concatenated, tmp / "broll.mp4", broll, segments, fps,
+                concatenated,
+                tmp / "broll.mp4",
+                broll,
+                segments,
+                fps,
                 transition=broll_transition,
             )
         final = _second_pass(concatenated, tmp, timeline, settings, legendas, overlays)

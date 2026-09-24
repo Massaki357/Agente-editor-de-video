@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from 'react'
 import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type Job, type ProjectOut } from '../api'
 import type { EstadoPlano } from '../usePlano'
+import type { EstadoBroll } from '../useBroll'
 import ClipDetails, { type Aba } from './ClipDetails'
 import ImagePlan from './ImagePlan'
 
@@ -17,12 +18,13 @@ interface Props {
   /** último job 'gerar' concluído: dá o resumo do vídeo final */
   jobGerar: Job | null
   plano: EstadoPlano
+  broll: EstadoBroll
   bloqueado: boolean
 }
 
 /** Área principal: resultado, clipe selecionado ou plano criativo. */
-export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, plano, bloqueado }: Props) {
-  const temPlano = plano.dados !== null
+export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, plano, broll, bloqueado }: Props) {
+  const temPlano = plano.dados !== null || broll.dados !== null
   // só mostra as abas que fazem sentido agora
   const abas: { id: ModoPalco; rotulo: string }[] = [
     { id: 'resultado', rotulo: 'Resultado' },
@@ -92,7 +94,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
             </div>
           </>
         )}
-        {atual === 'plano' && <ImagePlan plano={plano} bloqueado={bloqueado} />}
+        {atual === 'plano' && <ImagePlan plano={plano} broll={broll} bloqueado={bloqueado} />}
       </div>
     </section>
   )
@@ -159,6 +161,7 @@ function Resultado({ projeto, jobGerar }: { projeto: ProjectOut; jobGerar: Job |
   const duracao = numeroDoResultado(resultado, 'duracao_final')
   const imagens = numeroDoResultado(resultado, 'imagens')
   const zooms = numeroDoResultado(resultado, 'zooms')
+  const broll = numeroDoResultado(resultado, 'broll')
   const removido = numeroDoResultado(resultado, 'removido_pct')
 
   return (
@@ -169,6 +172,7 @@ function Resultado({ projeto, jobGerar }: { projeto: ProjectOut; jobGerar: Job |
           {fmtSeg(duracao ?? projeto.duracao_total)}
           {imagens !== null ? ` · ${imagens} imagem(ns)` : ''}
           {zooms !== null ? ` · ${zooms} zoom(s)` : ''}
+          {broll !== null ? ` · ${broll} cutaway(s)` : ''}
           {removido !== null ? ` · ${fmtNum(removido)}% removido` : ''}
         </p>
         <a className="botao" href={url} download>

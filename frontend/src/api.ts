@@ -22,6 +22,20 @@ export interface CaptionStyle {
   destaque_escala: number
 }
 
+/** Espelha `HighlightStyle` (API/src/highlight_captions/ass_builder.py). */
+export interface HighlightStyle {
+  fonte: string
+  tamanho: number
+  cor: string
+  cor_entrada: string
+  cor_contorno: string
+  contorno: number
+  sombra: number
+  margem_lateral: number
+  duracao_permanencia: number
+  fade_saida: number
+}
+
 /** Espelha `ImageParams` (API/src/images.py). */
 export interface ImageParams {
   intervalo_min: number
@@ -65,11 +79,17 @@ export interface PipelineOptions {
   /** estabiliza cada clipe antes de rastrear o rosto e reenquadrar */
   estabilizar: boolean
   suavizacao_estabilizacao: 'leve' | 'medio' | 'forte'
+  broll: boolean
+  /** Intervalo mínimo entre o início de dois cutaways, em segundos. */
+  broll_intervalo_min: number
+  broll_transition: 'hard_cut' | 'crossfade' | 'slide' | 'wipe'
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean
-  legendas: boolean
+  legendas_continuas: boolean
+  legendas_destaque: boolean
   estilo_legenda: CaptionStyle
+  estilo_destaque: HighlightStyle
   imagens: boolean
   sticker: boolean
   parametros_imagens: ImageParams
@@ -121,6 +141,37 @@ export interface ProjectOut extends ProjectSummary {
   job_ativo: string | null
   estabilizar: boolean
   suavizacao_estabilizacao: PipelineOptions['suavizacao_estabilizacao']
+  broll: boolean
+  broll_intervalo_min: number
+  broll_transition: PipelineOptions['broll_transition']
+  legendas_continuas: boolean
+  legendas_destaque: boolean
+  estilo_destaque: HighlightStyle
+}
+
+export interface BrollItemOut {
+  id: number
+  texto: string
+  query: string
+  inicio: number
+  duracao: number
+  ativo: boolean
+  aprovado: boolean
+  fonte: string | null
+  autor: string | null
+  pagina: string | null
+  video_url: string | null
+}
+
+export interface BrollPreviewOut {
+  valido: boolean
+  itens: BrollItemOut[]
+}
+
+export interface BrollEdit {
+  query?: string
+  ativo?: boolean
+  aprovado?: boolean
 }
 
 export interface Palavra {
@@ -231,7 +282,7 @@ export interface UsoLLM {
   modelos: string[]
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'gerar'
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar'
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
 
 export interface Job {
@@ -255,6 +306,7 @@ const NOMES_JOB: Record<string, string> = {
   transcrever: 'Transcrever',
   rosto: 'Rastrear rosto',
   imagens: 'Sugerir imagens e zooms',
+  broll: 'Preparar B-roll',
   gerar: 'Gerar vídeo',
 }
 
@@ -357,6 +409,9 @@ export const api = {
   rosto: (id: string, indice: number) =>
     request<RostoOut>('GET', `/projects/${enc(id)}/clips/${indice}/rosto`),
   imagens: (id: string) => request<PlanoOut>('GET', `/projects/${enc(id)}/imagens`),
+  broll: (id: string) => request<BrollPreviewOut>('GET', `/projects/${enc(id)}/broll`),
+  editBroll: (id: string, itemId: number, mudanca: BrollEdit) =>
+    request<BrollPreviewOut>('PATCH', `/projects/${enc(id)}/broll/${itemId}`, mudanca),
   editImagem: (id: string, itemId: number, mudanca: ImagemEdit) =>
     request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/${itemId}`, mudanca),
   setZoomActive: (id: string, zoomId: number, ativo: boolean) =>

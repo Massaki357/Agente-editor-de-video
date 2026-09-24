@@ -14,7 +14,7 @@ import math
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -63,6 +63,16 @@ class TrechoFala(BaseModel):
         return self.fim - self.inicio
 
 
+class VideoBroll(BaseModel):
+    """Clipe escolhido na prévia; reutilizado no render sem nova busca."""
+
+    arquivo: Path
+    fonte: Literal["pexels", "pixabay"]
+    id: str
+    pagina: str
+    autor: str = ""
+
+
 class ItemBroll(BaseModel):
     """Cutaway validado e pronto para a busca de vídeo da Etapa 1."""
 
@@ -76,6 +86,8 @@ class ItemBroll(BaseModel):
     duracao_max: float  # termina no fim da frase, nunca no meio de palavra
     motivo: str
     ativo: bool = True
+    aprovado: bool = False
+    video: VideoBroll | None = None
 
     @property
     def fim(self) -> float:

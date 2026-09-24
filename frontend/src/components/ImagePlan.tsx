@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react'
 import { fmtSeg, type ImagemEdit, type ItemImagem, type ItemZoom } from '../api'
 import type { EstadoPlano } from '../usePlano'
+import type { EstadoBroll } from '../useBroll'
+import BrollList from './BrollList'
 import ErrorBox from './ErrorBox'
 
 interface Props {
   plano: EstadoPlano
+  broll: EstadoBroll
   /** job ativo ou alteração em andamento: trava as edições */
   bloqueado: boolean
 }
 
 /** Palco "Plano criativo": imagens sugeridas pelo LLM e zooms no rosto. */
-export default function ImagePlan({ plano, bloqueado }: Props) {
+export default function ImagePlan({ plano, broll, bloqueado }: Props) {
   const itens = plano.dados?.plano.itens ?? []
   const zooms = plano.dados?.plano.zooms ?? []
   const ativas = itens.filter((i) => i.ativa && i.candidatos.length > 0).length
@@ -69,6 +72,7 @@ export default function ImagePlan({ plano, bloqueado }: Props) {
           />
         </>
       )}
+      <BrollList broll={broll} bloqueado={bloqueado} />
     </div>
   )
 }

@@ -17,6 +17,8 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from src.cache import atomic_write_text
+from src.editing.project_schema import com_plano, plano_do_documento
+from src.images import PlanoImagens, save_plan
 from src.project import Project
 
 
@@ -58,8 +60,23 @@ class ProjectStore:
         return path
 
     def plan_path(self, pid: str) -> Path:
-        """Plano de imagens (preview) do projeto."""
+        """Caminho do plano legado (mantido só para migração/compatibilidade)."""
         return self.dir(pid) / "plano_imagens.json"
+
+    def load_plan(self, pid: str) -> PlanoImagens | None:
+        """Lê exclusivamente o plano canônico do project.json."""
+        with self.lock(pid):
+            project = self.load(pid)
+            return plano_do_documento(project.documento)
+
+    def save_plan(self, pid: str, plano: PlanoImagens) -> None:
+        """O project.json é a fonte da verdade; espelha só sidecars já existentes."""
+        with self.lock(pid):
+            project = self.load(pid)
+            project.documento = com_plano(project.documento, plano)
+            self.save(pid, project)
+            if self.plan_path(pid).exists():
+                save_plan(plano, self.plan_path(pid))
 
     def lock(self, pid: str) -> threading.RLock:
         with self._guard:

@@ -55,7 +55,7 @@ O arquivo pode ficar na raiz do repositório ou em `API/.env` (este tem precedê
 | `WHISPER_DEVICE` | `auto`, `cuda` ou `cpu` |
 | `AUDIO_AGGRESSIVENESS` | força da limpeza de áudio: 0 não limpa, 0,5 (padrão) tira ~20 dB de ruído, 1 limpa ao máximo |
 | `AUDIO_TARGET_LUFS` | volume alvo do áudio limpo (padrão −16 LUFS) |
-| `PEXELS_API_KEY` / `PIXABAY_API_KEY` | busca das fotos |
+| `PEXELS_API_KEY` / `PIXABAY_API_KEY` | busca de fotos e vídeos de B-roll |
 | `CACHE_DIR`, `DATA_DIR`, `LOG_DIR`, `LOG_LEVEL` | onde ficam cache, projetos e logs |
 
 As chaves nunca saem da sua máquina, a não ser nas chamadas aos próprios provedores.
@@ -86,16 +86,50 @@ cd frontend && npm run dev                       # http://localhost:5173
    (ou use as setas ← → no teclado).
 3. **Escolha as opções** na coluna da direita: estabilizar os clipes, cortar silêncios,
    cortar erros de fala com o LLM, vertical 9:16, legendas (e o estilo delas),
-   imagens sobre a fala, zooms no rosto e o modelo do LLM.
+   imagens sobre a fala, zooms no rosto, B-roll e o modelo do LLM.
 4. **Veja a prévia** com "Sugerir imagens e zooms": o LLM escolhe as palavras, e você troca a
    foto (◀ ▶), muda a busca, ou desliga o que não gostou. Nada disso chama o LLM de novo.
-5. **"Gerar vídeo"**: o trabalho vira um job na fila da API, com progresso por etapa e botão
+5. Se ativou **B-roll**, clique em "Preparar B-roll". Na aba "Plano criativo", assista aos
+   vídeos sugeridos e aprove os que combinam com as frases. Pode desativar um cutaway ou
+   trocar a busca; depois de trocar, prepare novamente para ver o novo vídeo.
+6. **"Gerar vídeo"**: o trabalho vira um job na fila da API, com progresso por etapa e botão
    cancelar. A interface não trava; pode até fechar a aba e voltar depois.
-6. **Assista e baixe** o resultado no palco, na aba "Resultado".
+7. **Assista e baixe** o resultado no palco, na aba "Resultado".
 
 Os projetos, os vídeos enviados e os resultados ficam em `API/data/projects/<id>/`. O cache
 (transcrições, rastreio de rosto, respostas do LLM e fotos baixadas) fica em `API/.cache/` — pode
 apagar à vontade, só custa refazer.
+
+### Prévia de B-roll pela API
+
+O mesmo fluxo está disponível em `/docs`: crie um job `broll` em
+`POST /api/projects/{id}/jobs` com `opcoes.broll=true`. Depois consulte `GET /api/projects/{id}/broll`:
+cada item mostra a frase, a busca, a duração e a URL do vídeo escolhido. Use
+`PATCH /api/projects/{id}/broll/{item_id}` com `{"aprovado":true}` para incluir o
+cutaway no próximo render, `{"ativo":false}` para removê-lo ou `{"query":"nova busca"}`
+para trocar o vídeo. Após mudar a busca, rode o job `broll` novamente e aprove o novo
+resultado. Essas ações reaproveitam o plano salvo; não chamam o LLM outra vez.
+`broll_intervalo_min` controla a distância entre o início dos cutaways (8–30 s) e
+`broll_transition` aceita `hard_cut`, `crossfade`, `slide` ou `wipe`. As escolhas ficam
+salvas no `project.json` ao iniciar um job com opções. Imagens ativas têm prioridade se
+alguém editar o plano após a prévia; o render também omite zooms cobertos por B-roll.
+
+### Legendas de destaque
+
+A Parte 4 escolhe trechos literais de até cinco palavras a partir da transcrição após
+os cortes. O plano salva os destaques junto a imagens, zooms e B-roll. O gerador
+`src.highlight_captions.ass_builder.write_highlights_project` produz um `.ass` com
+revelação palavra a palavra, permanência padrão de 1,2 s e fade. A fonte padrão é
+menor e o texto procura uma área livre, longe das caixas de rosto fornecidas. Veja
+`output/parte4_etapa1_fala_real_curta.mp4` para uma amostra com voz. O JSON antigo
+`output/parte4_etapa0_plano_destaques.json` é histórico e contém trechos anteriores
+ao limite de cinco palavras; precisa ser replanejado para novo uso. O exemplo atual
+com três trechos escolhidos pelo LLM está em `output/parte4_etapa1_plano_curto.json`.
+Na interface, escolha **Nenhuma**, **Legenda contínua** ou **Legendas de destaque** no
+seletor de legendas. O modo Destaque permite ajustar permanência, tamanho e cores.
+O projeto e a API rejeitam a combinação simultânea dos dois modos. Ao gerar de novo,
+o pipeline usa apenas o modo escolhido e refaz planos de destaque antigos ou com
+permanência alterada.
 
 ## Pela linha de comando
 
@@ -109,11 +143,26 @@ uv run python -m src.video.stabilize tremido.mp4 estavel.mp4 --smoothing medio -
 uv run python -m src.video.stabilize tremido.mp4 estavel_opencv.mp4 --metodo opencv
 uv run python -m src.transcribe clipe.mp4                           # só a transcrição
 uv run python -m src.face clipe.mp4 -o debug.mp4                    # rastreio de rosto
-uv run python -m src.render projeto.project.json -o final.mp4       # só o render
+uv run python -m src.render projeto.project.json -o final.mp4       # render básico da timeline
 ```
 
 `--sem-cortes`, `--sem-llm`, `--sem-reenquadrar`, `--sem-legendas`, `--sem-imagens`, `--sem-zooms`
 e `--sticker` ligam e desligam as etapas.
+
+### Documento de edição do projeto
+
+O `project.json` v2 reúne a timeline e os elementos com IDs estáveis: clipes,
+cortes, crops, imagens, zooms, B-roll e legendas/destaques. O plano criativo usado
+pela API e pelo pipeline é reconstruído desse arquivo. Projetos v1 são migrados
+ao abrir; o arquivo original fica em `project.v1.json` e um
+`plano_imagens.json` antigo é incorporado ao documento. Para migrar todos os
+projetos salvos de uma vez, rode `cd API` e
+`uv run python -m src.editing.migrate`. Um sidecar legado pode continuar no disco
+para compatibilidade, mas o `project.json` é a fonte usada na geração.
+
+O comando `src.render` acima é o render básico da timeline para depuração; ele
+não monta os efeitos do plano criativo. A interface/API gera o vídeo completo
+a partir do documento; `src.pipeline` cria um novo documento a partir dos clipes.
 
 ## Estabilizando o vídeo
 

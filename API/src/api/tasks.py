@@ -9,16 +9,18 @@ from typing import Any
 from src import pipeline
 from src.api.jobs import Job, JobContext
 from src.api.store import ProjectStore
+from src.broll.planner import BrollParams, plan_broll_project
+from src.broll.preview import prepare_preview
 from src.cache import file_hash
 from src.face import FaceParams, render_debug, track_faces
-from src.images import load_plan, save_plan
+from src.images import PlanoImagens, timeline_signature
 from src.llm import client, pricing
 from src.pipeline import PipelineOptions
 from src.project import Project
 
 log = logging.getLogger(__name__)
 
-TIPOS = ("transcrever", "rosto", "imagens", "gerar")
+TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar")
 VIDEO_FINAL = "final.mp4"
 
 
@@ -32,7 +34,13 @@ COBERTURA_MIN = 0.2  # abaixo disso o rastreio quase não achou rosto no clipe
 
 def make_runner(store: ProjectStore):
     def run(job: Job, ctx: JobContext) -> dict[str, Any]:
-        tarefas = {"transcrever": transcrever, "rosto": rosto, "imagens": imagens, "gerar": gerar}
+        tarefas = {
+            "transcrever": transcrever,
+            "rosto": rosto,
+            "imagens": imagens,
+            "broll": broll,
+            "gerar": gerar,
+        }
         tarefa = tarefas.get(job.tipo)
         if tarefa is None:
             raise ValueError(f"tipo de job desconhecido: {job.tipo}")
@@ -110,9 +118,7 @@ def rosto(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
                 metade = 0.0 if etapa == "análise" else 0.5
                 ctx.step("estabilização", (i + metade + 0.5 * fracao) / n)
 
-            fonte = cached_video(
-                fonte, options.suavizacao_estabilizacao, on_progress=progresso
-            )
+            fonte = cached_video(fonte, options.suavizacao_estabilizacao, on_progress=progresso)
         ctx.step("rosto", i / n)
         # metade do progresso do clipe é a detecção, metade o vídeo de debug
         track = track_faces(
@@ -147,10 +153,10 @@ def imagens(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     options = PipelineOptions.model_validate(job.opcoes or {})
     project = store.load(job.projeto_id)
     pipeline.apply_project_cuts(project, options, ctx.step)
-    anterior = load_plan(store.plan_path(job.projeto_id))
+    anterior = store.load_plan(job.projeto_id)
     plano = pipeline.image_plan(project, options, anterior, ctx.step)
     store.save(job.projeto_id, project)
-    save_plan(plano, store.plan_path(job.projeto_id))
+    store.save_plan(job.projeto_id, plano)
     return {
         "itens": len(plano.itens),
         "com_foto": sum(1 for i in plano.itens if i.ativa),
@@ -158,20 +164,67 @@ def imagens(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     }
 
 
+def broll(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Planeja e prepara a prévia; ajustes posteriores reaproveitam o plano salvo."""
+    options = PipelineOptions.model_validate(job.opcoes or {})
+    project = store.load(job.projeto_id)
+    pipeline.apply_project_cuts(project, options, ctx.step)
+    anterior = store.load_plan(job.projeto_id)
+    assinatura = timeline_signature(project)
+    if anterior is not None and anterior.assinatura == assinatura:
+        plano = anterior
+    elif options.imagens or options.zooms:
+        plano = pipeline.image_plan(project, options, anterior, ctx.step)
+    else:
+        plano = PlanoImagens(assinatura=assinatura)
+    if plano.broll_intervalo_min != options.broll_intervalo_min:
+        plano = plano.model_copy(deep=True)
+        plano.broll = []
+    if not plano.broll:
+        # Imagens desativadas não devem impedir sugestões de vídeo. Mantém-se o
+        # plano original para poder voltar a ligá-las sem perder as escolhas.
+        planejamento = plano.model_copy(deep=True) if not options.imagens else plano
+        if not options.imagens:
+            planejamento.itens = []
+        planejado = plan_broll_project(
+            project,
+            planejamento,
+            transcriber=lambda path: pipeline.transcribe_clip(path),
+            params=BrollParams(intervalo_min=options.broll_intervalo_min),
+            settings=options.llm_settings(),
+        )
+        if planejamento is plano:
+            plano = planejado
+        else:
+            plano.broll = planejado.broll
+    plano.broll_intervalo_min = options.broll_intervalo_min
+    ctx.step("B-roll", 0.0)
+    plano = prepare_preview(plano)
+    store.save(job.projeto_id, project)
+    store.save_plan(job.projeto_id, plano)
+    ctx.step("B-roll", 1.0)
+    return {
+        "itens": len(plano.broll),
+        "com_video": sum(1 for item in plano.broll if item.video is not None),
+        "aprovados": sum(1 for item in plano.broll if item.ativo and item.aprovado),
+    }
+
+
 def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
-    """Pipeline completo: cortes, rosto, legendas, imagens (plano salvo) e render."""
+    """Pipeline completo: cortes, rosto, legendas, imagens, B-roll e render."""
     options = PipelineOptions.model_validate(job.opcoes or {})
     project = store.load(job.projeto_id)
     saida = store.saida_dir(job.projeto_id)
-    plano = load_plan(store.plan_path(job.projeto_id))
+    plano = store.load_plan(job.projeto_id)
     result = pipeline.render_project(project, saida / VIDEO_FINAL, options, ctx.step, plano)
     store.save(job.projeto_id, project)  # trechos e offsets calculados
     if result.plano is not None:
-        save_plan(result.plano, store.plan_path(job.projeto_id))
+        store.save_plan(job.projeto_id, result.plano)
     return {
         "avisos": list(result.avisos),
         "imagens": result.imagens,
         "zooms": result.zooms,
+        "broll": result.broll,
         "video": VIDEO_FINAL,
         "duracao_final": round(result.duracao_final, 3),
         "duracao_original": round(result.duracao_original, 3),

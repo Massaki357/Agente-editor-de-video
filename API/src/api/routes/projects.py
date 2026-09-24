@@ -78,7 +78,8 @@ def _clip_out(pid: str, i: int, clip: Clip, project: Project) -> ClipOut:
         offset=clip.offset,
         duracao_mantida=clip.duracao_mantida,
         transcrito=existe and cached_transcription(path) is not None,
-        rosto=existe and (face_path := _face_source(project, path)) is not None
+        rosto=existe
+        and (face_path := _face_source(project, path)) is not None
         and cached_track(face_path) is not None,
         video_url=f"{_base(pid)}/clips/{i}/video?v={versao}",
         thumbnail_url=f"{_base(pid)}/clips/{i}/thumbnail?v={versao}",
@@ -98,6 +99,12 @@ def project_out(store: ProjectStore, jobs, pid: str) -> ProjectOut:
         clipes=[_clip_out(pid, i, c, project) for i, c in enumerate(project.timeline.clipes)],
         estabilizar=project.estabilizar,
         suavizacao_estabilizacao=project.suavizacao_estabilizacao,
+        broll=project.broll,
+        broll_intervalo_min=project.broll_intervalo_min,
+        broll_transition=project.broll_transition,
+        legendas_continuas=project.legendas_continuas,
+        legendas_destaque=project.legendas_destaque,
+        estilo_destaque=project.estilo_destaque,
         duracao_total=project.timeline.duracao_total,
         arquivos=arquivos,
         job_ativo=ativo.id if ativo else None,

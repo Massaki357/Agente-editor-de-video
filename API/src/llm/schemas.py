@@ -59,6 +59,21 @@ class PlanoBroll(BaseModel):
     broll: list[BrollSugerido]
 
 
+class DestaqueSugerido(BaseModel):
+    """Frase copiada da transcrição para uma legenda de impacto."""
+
+    trecho_inicio_palavra: int = Field(description="índice global da primeira palavra da frase")
+    trecho_fim_palavra: int = Field(description="índice global da última palavra da frase")
+    texto: str = Field(description="texto integral e literal da frase na transcrição")
+    motivo: str = Field(description="razão breve para dar ênfase à frase")
+
+
+class PlanoDestaques(BaseModel):
+    """Resposta do prompt `plano_destaques`; vazia se nenhuma frase for marcante."""
+
+    destaques: list[DestaqueSugerido]
+
+
 class PlanoCriativo(BaseModel):
     """Resposta do prompt `plano_criativo`: listas vazias quando nada merece destaque."""
 

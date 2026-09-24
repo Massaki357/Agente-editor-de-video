@@ -25,11 +25,23 @@ def create_job(pid: str, body: JobCreate, store: Store, jobs: Jobs) -> Job:
             opcoes = body.opcoes.model_dump()
             project.estabilizar = body.opcoes.estabilizar
             project.suavizacao_estabilizacao = body.opcoes.suavizacao_estabilizacao
+            project.broll = body.opcoes.broll
+            project.broll_intervalo_min = body.opcoes.broll_intervalo_min
+            project.broll_transition = body.opcoes.broll_transition
+            project.legendas_continuas = body.opcoes.legendas_continuas
+            project.legendas_destaque = body.opcoes.legendas_destaque
+            project.estilo_destaque = body.opcoes.estilo_destaque
             store.save(pid, project)
         else:
             opcoes = {
                 "estabilizar": project.estabilizar,
                 "suavizacao_estabilizacao": project.suavizacao_estabilizacao,
+                "broll": project.broll,
+                "broll_intervalo_min": project.broll_intervalo_min,
+                "broll_transition": project.broll_transition,
+                "legendas_continuas": project.legendas_continuas,
+                "legendas_destaque": project.legendas_destaque,
+                "estilo_destaque": project.estilo_destaque.model_dump(),
             }
         return jobs.submit(pid, body.tipo, opcoes)
 

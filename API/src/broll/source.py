@@ -391,4 +391,14 @@ def prepare_item(
     """Entrada direta para um `ItemBroll` validado pelo planejador."""
     if not item.ativo:
         return None
+    if item.video is not None and item.video.arquivo.is_file():
+        return PreparedBroll(
+            arquivo=item.video.arquivo,
+            query=item.query,
+            duracao=item.duracao_max,
+            fonte=item.video.fonte,
+            id=item.video.id,
+            pagina=item.video.pagina,
+            autor=item.video.autor,
+        )
     return prepare_broll(item.query, item.duracao_max, settings=settings, params=params)
