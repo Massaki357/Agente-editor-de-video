@@ -63,6 +63,7 @@ from src.project import ClipMeta, Project, Timeline
 from src.reframe import CameraPath
 
 if TYPE_CHECKING:
+    from src.broll.transitions import Cutaway, Transition
     from src.images import Overlay
 
 log = logging.getLogger(__name__)
@@ -128,6 +129,8 @@ def render_timeline(
     overlays: Sequence[Overlay] = (),
     zoom: Callable[[float], float] | None = None,
     audios: Mapping[int, Path] | None = None,
+    broll: Sequence[Cutaway] = (),
+    broll_transition: Transition = "hard_cut",
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
 
@@ -155,6 +158,10 @@ def render_timeline(
     segments = plan_segments(timeline, metas, fps, audios)
     if not segments:
         raise RenderError("timeline sem trechos para renderizar")
+    if broll:
+        from src.broll.transitions import validate_cutaways
+
+        validate_cutaways(broll, segments, fps, broll_transition, 0.25)
 
     width, height = _output_size(size, metas[segments[0].clip_index])
     settings = RenderSettings(width, height, fps, sample_rate, fade)
@@ -171,6 +178,13 @@ def render_timeline(
         )
 
         concatenated = _concat(seg_files, segments, tmp / "concat.mp4", settings)
+        if broll:
+            from src.broll.transitions import apply_cutaways
+
+            concatenated = apply_cutaways(
+                concatenated, tmp / "broll.mp4", broll, segments, fps,
+                transition=broll_transition,
+            )
         final = _second_pass(concatenated, tmp, timeline, settings, legendas, overlays)
         if final != output:
             shutil.move(str(final), str(output))

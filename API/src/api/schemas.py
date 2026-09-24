@@ -30,7 +30,7 @@ class Reorder(BaseModel):
 class JobCreate(BaseModel):
     tipo: Literal["transcrever", "rosto", "imagens", "gerar"]
     opcoes: PipelineOptions | None = Field(
-        None, description="para 'imagens' e 'gerar': cortes, legendas, imagens, estilo..."
+        None, description="para 'rosto', 'imagens' e 'gerar': opções do pipeline"
     )
 
 
@@ -65,6 +65,8 @@ class ProjectSummary(BaseModel):
 
 class ProjectOut(ProjectSummary):
     clipes: list[ClipOut]
+    estabilizar: bool = False
+    suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = "medio"
     duracao_total: float
     arquivos: list[str] = Field(description="arquivos gerados em saida/")
     job_ativo: str | None

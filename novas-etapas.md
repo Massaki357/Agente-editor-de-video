@@ -264,12 +264,12 @@ src/video/
 
 ## Checklist Parte 2
 
-- [ ] Etapa 0: Setup e prova de conceito
-- [ ] Etapa 1: Cadeia básica de estabilização (vidstab)
-- [ ] Etapa 2: CLI standalone
-- [ ] Etapa 3: Fallback com OpenCV
-- [ ] Etapa 4: Integração no pipeline do editor de vídeos
-- [ ] Etapa 5: Ajuste fino e testes
+- [x] Etapa 0: Setup e prova de conceito
+- [x] Etapa 1: Cadeia básica de estabilização (vidstab)
+- [x] Etapa 2: CLI standalone
+- [x] Etapa 3: Fallback com OpenCV
+- [x] Etapa 4: Integração no pipeline do editor de vídeos
+- [x] Etapa 5: Ajuste fino e testes
 
 ---
 
@@ -374,8 +374,8 @@ src/broll/
 
 ## Checklist Parte 3
 
-- [ ] Etapa 0: Planejamento com o LLM
-- [ ] Etapa 1: Busca e preparo dos clipes de B-roll
+- [x] Etapa 0: Planejamento com o LLM
+- [x] Etapa 1: Busca e preparo dos clipes de B-roll
 - [ ] Etapa 2: Transições e montagem na timeline
 - [ ] Etapa 3: Preview e aprovação
 - [ ] Etapa 4: Integração na UI

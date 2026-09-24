@@ -1,9 +1,11 @@
 import { useId, useState, type ChangeEvent } from 'react'
-import type { ConfigOut, JobTipo, PipelineOptions } from '../api'
+import type { ConfigOut, JobTipo, PipelineOptions, ProjectOut } from '../api'
 
 interface Props {
   /** GET /config: opções padrão e modelos de LLM (null enquanto não chegou) */
   config: ConfigOut | null
+  /** Preferências de estabilização salvas no projeto. */
+  opcoesProjeto?: Pick<ProjectOut, 'estabilizar' | 'suavizacao_estabilizacao'>
   bloqueado: boolean
   semClipes: boolean
   onRodar: (tipo: JobTipo, opcoes?: PipelineOptions) => void
@@ -20,6 +22,8 @@ const FALLBACK: PipelineOptions = {
     normalizar: true,
     motor: null,
   },
+  estabilizar: false,
+  suavizacao_estabilizacao: 'medio',
   cortes: true,
   cortes_fala: true,
   reenquadrar: true,
@@ -59,9 +63,14 @@ const FALLBACK: PipelineOptions = {
 const DICA_BLOQUEIO = 'há um job em andamento: espere terminar ou cancele'
 const DICA_SEM_CLIPES = 'adicione clipes ao projeto primeiro'
 
-export default function OptionsPanel({ config, bloqueado, semClipes, onRodar }: Props) {
+export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClipes, onRodar }: Props) {
   const padrao = config?.opcoes_padrao ?? null
-  const [op, setOp] = useState<PipelineOptions>(padrao ?? FALLBACK)
+  const [op, setOp] = useState<PipelineOptions>(() => ({
+    ...(padrao ?? FALLBACK),
+    estabilizar: opcoesProjeto?.estabilizar ?? padrao?.estabilizar ?? FALLBACK.estabilizar,
+    suavizacao_estabilizacao:
+      opcoesProjeto?.suavizacao_estabilizacao ?? padrao?.suavizacao_estabilizacao ?? FALLBACK.suavizacao_estabilizacao,
+  }))
   const id = useId()
 
   const setEstilo = (mudanca: Partial<PipelineOptions['estilo_legenda']>) =>
@@ -198,6 +207,32 @@ export default function OptionsPanel({ config, bloqueado, semClipes, onRodar }: 
         <label className="caixa">
           <input
             type="checkbox"
+            checked={op.estabilizar}
+            onChange={(e) => setOp({ ...op, estabilizar: e.target.checked })}
+          />
+          estabilizar clipes tremidos
+        </label>
+        {op.estabilizar && (
+          <div className="campo recuada">
+            <label htmlFor={`${id}-estabilizacao`}>suavização</label>
+            <select
+              id={`${id}-estabilizacao`}
+              value={op.suavizacao_estabilizacao}
+              onChange={(e) => setOp({
+                ...op,
+                suavizacao_estabilizacao: e.target.value as PipelineOptions['suavizacao_estabilizacao'],
+              })}
+            >
+              <option value="leve">leve</option>
+              <option value="medio">média</option>
+              <option value="forte">forte</option>
+            </select>
+          </div>
+        )}
+        <p className="suave">Aplicada antes do rastreio de rosto e do reenquadramento.</p>
+        <label className="caixa">
+          <input
+            type="checkbox"
             checked={op.reenquadrar}
             onChange={(e) => setOp({ ...op, reenquadrar: e.target.checked })}
           />
@@ -297,7 +332,7 @@ export default function OptionsPanel({ config, bloqueado, semClipes, onRodar }: 
           <button type="button" onClick={() => onRodar('transcrever')} title={dica}>
             Transcrever
           </button>
-          <button type="button" onClick={() => onRodar('rosto')} title={dica}>
+          <button type="button" onClick={() => onRodar('rosto', op)} title={dica}>
             Rastrear rosto
           </button>
         </div>

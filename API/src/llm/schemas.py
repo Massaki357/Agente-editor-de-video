@@ -43,6 +43,22 @@ class ZoomSugerido(BaseModel):
     duracao: float = Field(description="segundos de zoom, entre 1.0 e 2.5")
 
 
+class BrollSugerido(BaseModel):
+    """Trecho de fala inteiro que merece um cutaway de vídeo."""
+
+    trecho_inicio_palavra: int = Field(description="índice global da primeira palavra da frase")
+    trecho_fim_palavra: int = Field(description="índice global da última palavra da frase")
+    query: str = Field(description="busca em inglês para vídeo relacionado à frase")
+    duracao_max: float = Field(description="duração máxima desejada em segundos")
+    motivo: str = Field(description="por que o vídeo agrega à frase")
+
+
+class PlanoBroll(BaseModel):
+    """Resposta do prompt `plano_broll`; lista vazia quando não há cutaways úteis."""
+
+    broll: list[BrollSugerido]
+
+
 class PlanoCriativo(BaseModel):
     """Resposta do prompt `plano_criativo`: listas vazias quando nada merece destaque."""
 

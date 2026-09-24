@@ -222,6 +222,7 @@ export default function Workspace({
           <OptionsPanel
             key={config ? 'config' : 'sem-config'}
             config={config}
+            opcoesProjeto={projeto}
             bloqueado={bloqueado}
             semClipes={projeto.clipes.length === 0}
             onRodar={(t, o) => void rodar(t, o)}

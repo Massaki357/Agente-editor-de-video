@@ -10,6 +10,17 @@ def test_missing_ffmpeg_is_reported_not_raised(monkeypatch):
     assert [c.status for c in checks] == [doctor.Status.FAIL, doctor.Status.FAIL]
 
 
+def test_vidstab_filters_reported_with_actionable_warning(monkeypatch):
+    monkeypatch.setattr(doctor, "_ffmpeg_filters", lambda: {"vidstabdetect"})
+    check = doctor.check_vidstab()[0]
+    assert check.status is doctor.Status.WARN
+    assert "vidstabtransform" in check.detail
+    assert "--enable-libvidstab" in check.detail
+    assert "OpenCV" in check.detail
+    monkeypatch.setattr(doctor, "_ffmpeg_filters", lambda: set(doctor.VIDSTAB_FILTERS))
+    assert doctor.check_vidstab()[0].status is doctor.Status.OK
+
+
 def test_missing_llm_key_is_fail_and_stock_keys_are_warnings():
     checks = {c.name: c.status for c in doctor.check_keys(Settings(llm_model="openai:gpt-5-mini"))}
     assert checks["OPENAI_API_KEY"] is doctor.Status.FAIL

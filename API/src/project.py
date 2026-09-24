@@ -8,10 +8,12 @@ mantidas dos clipes anteriores. Imagens e zooms estão em t_out.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.cache import atomic_write_text
+from src.config import get_settings
 
 Trecho = tuple[float, float]
 
@@ -141,6 +143,10 @@ class Timeline(_Modelo):
 class Project(_Modelo):
     versao: int = PROJECT_VERSION
     timeline: Timeline = Field(default_factory=Timeline)
+    estabilizar: bool = False
+    suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = Field(
+        default_factory=lambda: get_settings().stabilize_smoothing
+    )
 
     def salvar(self, path: str | Path) -> Path:
         """Grava o JSON; caminhos de clipes dentro da pasta do projeto viram relativos."""

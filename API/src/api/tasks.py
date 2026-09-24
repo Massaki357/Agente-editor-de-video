@@ -92,6 +92,9 @@ def transcrever(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any
 
 def rosto(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     """Rastreia o rosto em todos os clipes e gera um vídeo de debug por clipe."""
+    from src.video.stabilize import cached_video
+
+    options = PipelineOptions.model_validate(job.opcoes or {})
     project = store.load(job.projeto_id)
     clipes = project.timeline.clipes
     params = FaceParams()
@@ -99,16 +102,27 @@ def rosto(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     n = max(len(clipes), 1)
     resultado, avisos = [], []
     for i, clip in enumerate(clipes):
+        fonte = Path(clip.arquivo)
+        if options.estabilizar:
+            ctx.step("estabilização", i / n)
+
+            def progresso(etapa: str, fracao: float, i: int = i) -> None:
+                metade = 0.0 if etapa == "análise" else 0.5
+                ctx.step("estabilização", (i + metade + 0.5 * fracao) / n)
+
+            fonte = cached_video(
+                fonte, options.suavizacao_estabilizacao, on_progress=progresso
+            )
         ctx.step("rosto", i / n)
         # metade do progresso do clipe é a detecção, metade o vídeo de debug
         track = track_faces(
-            Path(clip.arquivo),
+            fonte,
             params,
             on_progress=lambda f, i=i: ctx.step("rosto", (i + 0.5 * f) / n),
         )
-        nome = debug_video_name(Path(clip.arquivo))
+        nome = debug_video_name(fonte)
         render_debug(
-            Path(clip.arquivo),
+            fonte,
             saida / nome,
             track,
             params.passo,

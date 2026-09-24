@@ -27,8 +27,9 @@ from src.cache import file_hash
 from src.clips import VIDEO_EXTENSIONS, ClipProbeError, clip_from_file, list_clips_from_folder
 from src.config import REPO_ROOT
 from src.face import cached_track
-from src.project import Clip
+from src.project import Clip, Project
 from src.transcribe import cached_transcription
+from src.video.stabilize import cached_video_file
 
 router = APIRouter(prefix="/projects", tags=["projetos"])
 
@@ -47,7 +48,16 @@ def _video_final_url(store: ProjectStore, pid: str) -> str | None:
     return f"{_base(pid)}/files/{VIDEO_FINAL}?v={int(path.stat().st_mtime)}"
 
 
-def _clip_out(pid: str, i: int, clip: Clip) -> ClipOut:
+def _face_source(project: Project, path: Path) -> Path | None:
+    if not project.estabilizar:
+        return path
+    try:
+        return cached_video_file(path, project.suavizacao_estabilizacao)
+    except RuntimeError:  # sem FFmpeg: o doctor informa a causa, a listagem continua disponível
+        return None
+
+
+def _clip_out(pid: str, i: int, clip: Clip, project: Project) -> ClipOut:
     meta = clip.meta
     path = Path(clip.arquivo)
     existe = path.exists()
@@ -68,7 +78,8 @@ def _clip_out(pid: str, i: int, clip: Clip) -> ClipOut:
         offset=clip.offset,
         duracao_mantida=clip.duracao_mantida,
         transcrito=existe and cached_transcription(path) is not None,
-        rosto=existe and cached_track(path) is not None,
+        rosto=existe and (face_path := _face_source(project, path)) is not None
+        and cached_track(face_path) is not None,
         video_url=f"{_base(pid)}/clips/{i}/video?v={versao}",
         thumbnail_url=f"{_base(pid)}/clips/{i}/thumbnail?v={versao}",
     )
@@ -84,7 +95,9 @@ def project_out(store: ProjectStore, jobs, pid: str) -> ProjectOut:
         **info.model_dump(),
         n_clipes=len(project.timeline.clipes),
         video_final_url=_video_final_url(store, pid),
-        clipes=[_clip_out(pid, i, c) for i, c in enumerate(project.timeline.clipes)],
+        clipes=[_clip_out(pid, i, c, project) for i, c in enumerate(project.timeline.clipes)],
+        estabilizar=project.estabilizar,
+        suavizacao_estabilizacao=project.suavizacao_estabilizacao,
         duracao_total=project.timeline.duracao_total,
         arquivos=arquivos,
         job_ativo=ativo.id if ativo else None,
@@ -284,10 +297,12 @@ def clip_transcription(pid: str, indice: int, store: Store) -> TranscricaoOut:
 def clip_face(pid: str, indice: int, store: Store) -> RostoOut:
     """Resumo do rastreio de rosto em cache. Para rastrear, crie um job `rosto`."""
     path = _clip_path(store, pid, indice)
-    track = cached_track(path)
+    project = store.load(pid)
+    fonte = _face_source(project, path)
+    track = cached_track(fonte) if fonte is not None else None
     if track is None:
         raise HTTPException(404, "rosto ainda não rastreado (rode o job 'rosto')")
-    debug = store.dir(pid) / "saida" / debug_video_name(path)
+    debug = store.dir(pid) / "saida" / debug_video_name(fonte)
     return RostoOut(
         fps=track.fps,
         largura=track.largura,

@@ -95,6 +95,21 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Cutaways de B-roll (24/09/2026)
+
+- ✅ **P3-C1: clipe buscado aprovado pelo usuário.** `output/parte3_etapa1_colheita.mp4` mostra colheita de café em enquadramento vertical. Duração, formato e ausência de áudio foram conferidos automaticamente. A suíte passou com 511 testes, o doctor teve 0 faltando e o verificador independente aprovou a parte automatizável.
+- ✅ **P3-E0: planejamento aprovado pelo usuário.** O LLM real escolheu duas frases inteiras do roteiro de café para cutaways (colheita e torra), sem usar a frase já reservada a uma imagem. O código valida bordas exatas das palavras, emendas entre clipes e entre trechos cortados, duração de 1,5–4 s, densidade de 8 s e retorno à câmera. A suíte completa passou com 502 testes; doctor, ruff e verificador independente aprovaram a parte automatizável.
+
+### Estabilizador de vídeo (24/09/2026)
+
+- ✅ **P2-C0: prova de conceito aprovada pelo usuário.** O tremor diminuiu perceptivelmente no vídeo `output/parte2_etapa0_palestra_estabilizada.mp4`. O doctor confirmou `vidstabdetect` e `vidstabtransform`; a saída preservou o áudio e a duração de 69,166667 s.
+- ✅ **P2-C1: estabilizador básico aprovado pelo usuário.** O resultado `output/parte2_etapa1_palestra_medio.mp4` ficou bom na avaliação visual/auditiva. Nove combinações sintéticas (três intensidades × três níveis) reduziram o deslocamento em pelo menos 10% e não produziram faixas pretas; o áudio real permaneceu bit a bit igual ao original.
+- ✅ **P2-E2: CLI standalone verificada.** `python -m src.video.stabilize` aceita nível de suavização e crop, mostra o progresso das duas passadas e retorna erros claros para entrada inválida ou `vidstab` ausente. Um teste com vídeo sintético de 150 s terminou em 27,89 s sem travar e preservou a duração. A suíte rápida passou com 474 testes; o verificador independente aprovou a etapa.
+- ✅ **P2-C3: fallback OpenCV aprovado pelo usuário.** O vídeo `output/parte2_etapa3_palestra_opencv.mp4` ficou bom na avaliação visual/auditiva. A seleção automática e o cache específico do motor passaram nos testes; no vídeo real, os 2.073 quadros e o áudio AAC foram preservados.
+- ✅ **P2-E4: integração verificada.** O projeto guarda opção e nível, a API e a interface os reaproveitam, e rastreio/render recebem o vídeo estabilizado por clipe sem alterar a fonte da transcrição. O fallback OpenCV também gerou vídeo final no teste. A suíte completa passou com 482 testes; os testes novos passaram após o último ajuste, o build passou e o doctor teve 0 faltando. O verificador independente aprovou a parte automatizável.
+- ✅ **P2-C4: comparação do rastreio aprovada pelo usuário.** `output/parte2_etapa4_comparacao_rosto.mp4` mostrou o rosto mais estável com a opção ligada; a etapa 4 foi concluída.
+- ✅ **P2-E5: ajuste fino e testes concluídos.** Três clipes sintéticos com tremor leve, médio e forte foram medidos por variância do deslocamento entre quadros. Vidstab e OpenCV reduziram o tremor em pelo menos 99% nos seis casos, acima da margem exigida de 30%. `STABILIZE_SMOOTHING` e `STABILIZE_CROP_PERCENT` foram ligados aos padrões da CLI e do editor; o cache inclui o crop efetivo. O README cobre os dois modos de uso e o fallback. Suíte completa: 493 testes passaram; doctor: 0 faltando; build do frontend e verificador independente aprovaram.
+
 ### Otimizador de áudio (23/09/2026)
 
 - ✅ **P1-C0 e P1-C1: a limpeza soou bem.** O usuário ouviu os pares `output/parte1_etapa0_*.wav` (só denoise) e `output/parte1_etapa1_*.wav` (cadeia completa, padrão e `aggressiveness=1`) e aprovou: sem ruído e sem voz robótica. Os padrões ficam como estão (`aggressiveness=0,5`, alvo de −16 LUFS).

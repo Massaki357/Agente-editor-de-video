@@ -91,9 +91,44 @@ def test_health_config_and_doctor(client):
     # a limpeza de áudio (novas-etapas, Parte 1) chega ao frontend desligada
     assert corpo["opcoes_padrao"]["limpar_audio"] is False
     assert corpo["opcoes_padrao"]["parametros_audio"]["aggressiveness"] == 0.5
+    assert corpo["opcoes_padrao"]["estabilizar"] is False
+    assert corpo["opcoes_padrao"]["suavizacao_estabilizacao"] == "medio"
     doctor = client.get("/api/doctor").json()
     assert {"nome", "status", "detalhe"} <= set(doctor[0])
     assert any(c["nome"] == "ffmpeg" for c in doctor)
+
+
+def test_stabilization_options_are_saved_in_project_json_and_reused(client, video_dir, monkeypatch):
+    from datetime import UTC, datetime
+
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(video_dir)})
+    captured = []
+
+    def submit(self, projeto_id, tipo, opcoes=None):
+        captured.append(opcoes)
+        return Job(id=f"fake{len(captured)}", projeto_id=projeto_id, tipo=tipo,
+                   opcoes=opcoes or {}, criado=datetime.now(UTC))
+
+    monkeypatch.setattr(JobManager, "submit", submit)
+    r = client.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "tipo": "rosto",
+            "opcoes": {"estabilizar": True, "suavizacao_estabilizacao": "forte"},
+        },
+    )
+    assert r.status_code == 202, r.text
+    project = client.get(f"/api/projects/{pid}").json()
+    assert project["estabilizar"] is True
+    assert project["suavizacao_estabilizacao"] == "forte"
+    assert captured[0]["estabilizar"] is True
+
+    r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar"})
+    assert r.status_code == 202, r.text
+    assert captured[1] == {"estabilizar": True, "suavizacao_estabilizacao": "forte"}
+    path = get_settings().data_dir / "projects" / pid / "project.json"
+    assert '"estabilizar": true' in path.read_text(encoding="utf-8")
 
 
 # ------------------------------------------------------------------ projetos

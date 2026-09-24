@@ -65,6 +65,7 @@ REQUIRED_FFMPEG_FILTERS = ["ass", "silencedetect", "overlay", "afade", "concat"]
 # Filtros usados pelo otimizador de áudio (Parte 1): RNNoise e ruído por FFT são as
 # alternativas quando o DeepFilterNet não está disponível.
 AUDIO_FFMPEG_FILTERS = ("highpass", "loudnorm", "arnndn", "afftdn")
+VIDSTAB_FILTERS = ("vidstabdetect", "vidstabtransform")
 
 
 def _run(cmd: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
@@ -246,6 +247,24 @@ def check_audio(settings: Settings) -> list[Check]:
     return checks
 
 
+def check_vidstab() -> list[Check]:
+    """Confere os dois filtros necessários para estabilização em duas passadas."""
+    filtros = _ffmpeg_filters()
+    if filtros is None:
+        return [Check("Estabilização (vidstab)", Status.WARN, "FFmpeg indisponível para checar")]
+    faltando = [f for f in VIDSTAB_FILTERS if f not in filtros]
+    if faltando:
+        return [
+            Check(
+                "Estabilização (vidstab)",
+                Status.WARN,
+                f"faltando: {', '.join(faltando)}; reinstale o FFmpeg com "
+                "--enable-libvidstab; o estabilizador usará o fallback OpenCV automaticamente",
+            )
+        ]
+    return [Check("Estabilização (vidstab)", Status.OK, ", ".join(VIDSTAB_FILTERS))]
+
+
 def check_cache_dir(settings: Settings) -> list[Check]:
     try:
         settings.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -265,6 +284,7 @@ def run_checks(settings: Settings) -> list[Check]:
         ("GPU", lambda: check_gpu(settings)),
         ("Chaves de API", lambda: check_keys(settings)),
         ("Áudio", lambda: check_audio(settings)),
+        ("Estabilização", check_vidstab),
         ("Cache", lambda: check_cache_dir(settings)),
         ("Modelo de rosto", lambda: check_face_model(settings)),
     ]

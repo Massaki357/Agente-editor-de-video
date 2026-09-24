@@ -18,6 +18,7 @@ SAMPLES_DIR = REPO_ROOT / "samples"
 OUTPUT_DIR = REPO_ROOT / "output"
 
 WhisperDevice = Literal["auto", "cuda", "cpu"]
+StabilizeSmoothing = Literal["leve", "medio", "forte"]
 
 
 # Modelos oferecidos na interface (o `.env` pode usar qualquer outro que o LangChain
@@ -39,6 +40,9 @@ class Settings(BaseModel):
     # Otimizador de áudio (novas-etapas.md, Parte 1)
     audio_aggressiveness: float = Field(0.5, ge=0, le=1)
     audio_target_lufs: float = Field(-16.0, le=0)
+    # Estabilizador de vídeo (novas-etapas.md, Parte 2)
+    stabilize_smoothing: StabilizeSmoothing = "medio"
+    stabilize_crop_percent: float | None = Field(None, ge=0, le=30)
     pexels_api_key: SecretStr | None = None
     pixabay_api_key: SecretStr | None = None
     cache_dir: Path = Field(default=PROJECT_ROOT / ".cache")
@@ -105,6 +109,8 @@ _ENV_FIELDS = {
     "WHISPER_DEVICE": "whisper_device",
     "AUDIO_AGGRESSIVENESS": "audio_aggressiveness",
     "AUDIO_TARGET_LUFS": "audio_target_lufs",
+    "STABILIZE_SMOOTHING": "stabilize_smoothing",
+    "STABILIZE_CROP_PERCENT": "stabilize_crop_percent",
     "PEXELS_API_KEY": "pexels_api_key",
     "PIXABAY_API_KEY": "pixabay_api_key",
     "CACHE_DIR": "cache_dir",

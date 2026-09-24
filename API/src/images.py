@@ -1,4 +1,4 @@
-"""Plano criativo: imagens sobre a fala (Etapa 8) e zooms no rosto (Etapa 9).
+"""Plano criativo: imagens, zooms e cutaways de B-roll.
 
 Divisão de responsabilidades (princípio central do etapas.md):
 - O **LLM** só escolhe *quais palavras* ganham imagem e a *query* de busca (em
@@ -12,8 +12,8 @@ Zooms: o LLM aponta a palavra de ênfase e a duração; o código valida (1 a ca
 1–2,5 s, dentro do clipe: nunca atravessa emenda). A geometria do zoom (escala,
 rampas, rosto sempre inteiro) fica em `reframe.py`.
 
-O plano (`PlanoImagens`, imagens + zooms) é salvo no projeto; trocar a imagem escolhida, mudar a
-query ou desativar um item não chama o LLM de novo. A `assinatura` do plano muda
+O plano (`PlanoImagens`, imagens + zooms + B-roll) é salvo no projeto; trocar
+uma imagem, mudar a query ou desativar um item não chama o LLM de novo. A `assinatura` muda
 quando os trechos mudam; aí o plano precisa ser refeito (o LLM tem cache).
 """
 
@@ -25,6 +25,7 @@ import logging
 import math
 import re
 import unicodedata
+from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ from typing import Literal
 import requests
 from pydantic import BaseModel, Field
 
+from src.broll.planner import ItemBroll
 from src.cache import atomic_write_text, file_hash, read_json_cache, write_json_cache
 from src.config import Settings, get_settings
 from src.cuts import TimeMap, visible_words
@@ -109,11 +111,12 @@ class ItemZoom(BaseModel):
 
 
 class PlanoImagens(BaseModel):
-    """Plano criativo do projeto: imagens (Etapa 8) e zooms (Etapa 9)."""
+    """Plano criativo do projeto: imagens, zooms e cutaways de B-roll."""
 
     assinatura: str
     itens: list[ItemImagem] = Field(default_factory=list)
     zooms: list[ItemZoom] = Field(default_factory=list)
+    broll: list[ItemBroll] = Field(default_factory=list)
 
     def zoom_intervals(self) -> list[tuple[float, float]]:
         return [(z.inicio, z.fim) for z in self.zooms if z.ativo]
@@ -127,6 +130,7 @@ class PalavraGlobal:
     indice: int
     clipe: int
     palavra: Palavra  # em t_out
+    segmento: int = 0  # índice do trecho mantido na TimeMap (não atravessar emenda interna)
 
 
 def timeline_signature(project: Project) -> str:
@@ -141,13 +145,15 @@ def timeline_signature(project: Project) -> str:
 def global_words(project: Project, transcriber: Callable[[Path], object]) -> list[PalavraGlobal]:
     """Palavras visíveis de todos os clipes, no tempo final, com índice global."""
     tm = TimeMap(project.timeline)
+    inicios_segmentos = [s.out_inicio for s in tm.segments]
     resultado: list[PalavraGlobal] = []
     for i, clip in enumerate(project.timeline.clipes):
         if tm.clip_bounds(i) is None or (clip.meta is not None and not clip.meta.tem_audio):
             continue
         palavras = transcriber(Path(clip.arquivo)).palavras  # type: ignore[attr-defined]
         for p in visible_words(tm, i, palavras):
-            resultado.append(PalavraGlobal(len(resultado), i, p))
+            segmento = bisect_right(inicios_segmentos, p.inicio + 1e-9) - 1
+            resultado.append(PalavraGlobal(len(resultado), i, p, segmento))
     return resultado
 
 

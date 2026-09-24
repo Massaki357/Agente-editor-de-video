@@ -18,6 +18,8 @@ def test_defaults_without_env_file(clean_env, tmp_path):
     assert s.whisper_device == "auto"
     assert s.openai_api_key is None
     assert s.cache_dir == PROJECT_ROOT / ".cache"
+    assert s.stabilize_smoothing == "medio"
+    assert s.stabilize_crop_percent is None
     assert (s.output_width, s.output_height, s.output_fps) == (1080, 1920, 30)
 
 
@@ -98,3 +100,20 @@ def test_for_model_only_changes_the_model():
     outro = s.for_model("anthropic:claude-sonnet-5")
     assert outro.llm_model == "anthropic:claude-sonnet-5"
     assert outro.openai_api_key == s.openai_api_key and outro.cache_dir == s.cache_dir
+
+
+def test_stabilization_settings_from_env_and_range(clean_env, tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("STABILIZE_SMOOTHING=forte\nSTABILIZE_CROP_PERCENT=4.5\n", encoding="utf-8")
+    settings = load_settings(env)
+    assert settings.stabilize_smoothing == "forte"
+    assert settings.stabilize_crop_percent == 4.5
+    clean_env.setenv("STABILIZE_SMOOTHING", "leve")
+    assert load_settings(env).stabilize_smoothing == "leve"
+    clean_env.setenv("STABILIZE_CROP_PERCENT", "31")
+    with pytest.raises(ValueError):
+        load_settings(env)
+    clean_env.setenv("STABILIZE_CROP_PERCENT", "4.5")
+    clean_env.setenv("STABILIZE_SMOOTHING", "muito")
+    with pytest.raises(ValueError):
+        load_settings(env)

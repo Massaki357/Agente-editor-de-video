@@ -18,9 +18,19 @@ def create_job(pid: str, body: JobCreate, store: Store, jobs: Jobs) -> Job:
     # sob o lock do projeto: uma alteração em andamento (ex.: upload) termina antes
     with store.lock(pid):
         ensure_idle(jobs, pid)
-        if not store.load(pid).timeline.clipes:
+        project = store.load(pid)
+        if not project.timeline.clipes:
             raise HTTPException(422, "o projeto não tem clipes")
-        opcoes = body.opcoes.model_dump() if body.opcoes else {}
+        if body.opcoes is not None:
+            opcoes = body.opcoes.model_dump()
+            project.estabilizar = body.opcoes.estabilizar
+            project.suavizacao_estabilizacao = body.opcoes.suavizacao_estabilizacao
+            store.save(pid, project)
+        else:
+            opcoes = {
+                "estabilizar": project.estabilizar,
+                "suavizacao_estabilizacao": project.suavizacao_estabilizacao,
+            }
         return jobs.submit(pid, body.tipo, opcoes)
 
 

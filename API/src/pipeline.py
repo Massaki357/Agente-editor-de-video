@@ -20,6 +20,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,6 +34,7 @@ from src.images import ImageParams, PlanoImagens, build_overlays, plan_images, t
 from src.project import Project
 from src.reframe import CameraPath, ZoomParams, camera_path, plan_zooms, zoom_curve
 from src.transcribe import transcribe_clip
+from src.video.stabilize import cached_video
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +51,10 @@ class PipelineOptions(BaseModel):
     #   com limpeza  0,528  0,575  0,715   (pior nas três)
     limpar_audio: bool = False
     parametros_audio: AudioParams = Field(default_factory=AudioParams.do_env)
+    estabilizar: bool = False  # antes do rastreio e do render; sem alterar o clipe original
+    suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = Field(
+        default_factory=lambda: get_settings().stabilize_smoothing
+    )
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
@@ -85,6 +91,7 @@ class PipelineResult(BaseModel):
     tempos: dict[str, float]
     imagens: int = 0  # imagens que entraram no vídeo
     zooms: int = 0  # zooms que entraram no vídeo
+    broll: int = 0  # cutaways que entraram no vídeo
     plano: PlanoImagens | None = None  # plano usado (para salvar no projeto)
 
     @property
@@ -151,6 +158,35 @@ def audios_limpos(
             limpos[i] = caminho
     on_step("áudio", 1.0)
     return limpos, avisos
+
+
+def project_video_estabilizado(
+    project: Project, options: PipelineOptions, on_step: StepCallback = _noop
+) -> Project:
+    """Cópia para rastreio/render com os caminhos de vídeo do cache.
+
+    O projeto persistido conserva os originais para cortes, transcrição e plano criativo.
+    """
+    if not options.estabilizar:
+        return project
+    video_project = project.model_copy(deep=True)
+    clipes = video_project.timeline.clipes
+    for i, clip in enumerate(clipes):
+        if not clip.trechos:
+            continue
+        on_step("estabilização", i / len(clipes))
+        fonte = Path(clip.arquivo)
+
+        def progresso(etapa: str, fracao: float, i: int = i) -> None:
+            # O vidstab tem duas passadas; o OpenCV também reporta análise e render.
+            metade = 0.0 if etapa == "análise" else 0.5
+            on_step("estabilização", (i + metade + 0.5 * fracao) / len(clipes))
+
+        clip.arquivo = str(
+            cached_video(fonte, options.suavizacao_estabilizacao, on_progress=progresso)
+        )
+    on_step("estabilização", 1.0)
+    return video_project
 
 
 def transcribe_project(project: Project, on_step: StepCallback = _noop) -> None:
@@ -240,6 +276,11 @@ def render_project(
     apply_project_cuts(project, options, on_step)
     tempos["transcrição + cortes"] = time.perf_counter() - t0
 
+    t0 = time.perf_counter()
+    video_project = project_video_estabilizado(project, options, on_step)
+    if options.estabilizar:
+        tempos["estabilização"] = time.perf_counter() - t0
+
     cameras: dict[int, CameraPath] | None = None
     tracks: dict[int, FaceTrack | None] = {}
     usa_zoom = options.zooms and options.reenquadrar  # zoom é a janela 9:16 menor
@@ -251,9 +292,9 @@ def render_project(
         size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
     if options.reenquadrar or options.imagens:
         t0 = time.perf_counter()
-        tracks = face_tracks(project, on_step)
+        tracks = face_tracks(video_project, on_step)
         if options.reenquadrar:
-            cameras = reframe_cameras(project, tracks, options.parametros_zoom)
+            cameras = reframe_cameras(video_project, tracks, options.parametros_zoom)
         tempos["rosto"] = time.perf_counter() - t0
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +307,9 @@ def render_project(
 
     with tempfile.TemporaryDirectory(prefix="imagens_") as tmp_imagens:
         overlays = []
-        plano_usado = None
+        plano_usado = (
+            plano if plano is not None and plano.assinatura == timeline_signature(project) else None
+        )
         zoom = None
         n_zooms = 0
         if options.imagens or usa_zoom:
@@ -288,11 +331,22 @@ def render_project(
                     plano_usado,
                     size,
                     estilo.box(size) if legendas is not None else None,
-                    face_boxes_fn(project, tracks, cameras, size, zoom=zoom),
+                    face_boxes_fn(video_project, tracks, cameras, size, zoom=zoom),
                     Path(tmp_imagens),
                     sticker=options.sticker,
                 )
             tempos["plano criativo"] = time.perf_counter() - t0
+
+        cutaways = []
+        if plano_usado is not None and plano_usado.broll:
+            if options.reenquadrar:
+                from src.broll.transitions import prepare_cutaways
+
+                t0 = time.perf_counter()
+                cutaways = prepare_cutaways(plano_usado.broll, settings)
+                tempos["B-roll"] = time.perf_counter() - t0
+            else:
+                log.warning("B-roll exige saída vertical reenquadrada; mantendo a câmera.")
 
         t0 = time.perf_counter()
         limpos, avisos_audio = audios_limpos(project, options, on_step)
@@ -301,7 +355,7 @@ def render_project(
 
         t0 = time.perf_counter()
         render_timeline(
-            timeline,
+            video_project.timeline,
             output,
             size=size if options.reenquadrar else None,
             fps=settings.output_fps,
@@ -312,6 +366,7 @@ def render_project(
             overlays=overlays,
             zoom=zoom,
             audios=limpos,
+            broll=cutaways,
         )
         tempos["render"] = time.perf_counter() - t0
 
@@ -323,6 +378,7 @@ def render_project(
         tempos=tempos,
         imagens=len(overlays),
         zooms=n_zooms,
+        broll=len(cutaways),
         plano=plano_usado,
     )
     log.info(

@@ -62,6 +62,9 @@ export interface PipelineOptions {
   /** limpa o ruído do **áudio do vídeo final**; a transcrição usa o áudio original */
   limpar_audio: boolean
   parametros_audio: AudioParams
+  /** estabiliza cada clipe antes de rastrear o rosto e reenquadrar */
+  estabilizar: boolean
+  suavizacao_estabilizacao: 'leve' | 'medio' | 'forte'
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean
@@ -116,6 +119,8 @@ export interface ProjectOut extends ProjectSummary {
   duracao_total: number
   arquivos: string[]
   job_ativo: string | null
+  estabilizar: boolean
+  suavizacao_estabilizacao: PipelineOptions['suavizacao_estabilizacao']
 }
 
 export interface Palavra {

@@ -84,9 +84,9 @@ cd frontend && npm run dev                       # http://localhost:5173
 2. **Traga os vídeos**: "Abrir pasta" importa uma pasta inteira em ordem natural (1, 2, 10);
    "Enviar" sobe arquivos na ordem em que você selecionou. Arraste os cartões para mudar a ordem
    (ou use as setas ← → no teclado).
-3. **Escolha as opções** na coluna da direita: cortar silêncios, cortar erros de fala com o LLM,
-   vertical 9:16, legendas (e o estilo delas), imagens sobre a fala, zooms no rosto e o modelo do
-   LLM.
+3. **Escolha as opções** na coluna da direita: estabilizar os clipes, cortar silêncios,
+   cortar erros de fala com o LLM, vertical 9:16, legendas (e o estilo delas),
+   imagens sobre a fala, zooms no rosto e o modelo do LLM.
 4. **Veja a prévia** com "Sugerir imagens e zooms": o LLM escolhe as palavras, e você troca a
    foto (◀ ▶), muda a busca, ou desliga o que não gostou. Nada disso chama o LLM de novo.
 5. **"Gerar vídeo"**: o trabalho vira um job na fila da API, com progresso por etapa e botão
@@ -105,6 +105,8 @@ uv run python -m src.pipeline ../samples -o ../output/final.mp4     # pipeline c
 uv run python -m src.pipeline v1.mp4 v2.mp4 -o saida.mp4 --sem-imagens --sem-zooms
 uv run python -m src.audio.optimize aula.mp4 limpo.wav                  # limpar o áudio
 uv run python -m src.audio.optimize podcast.mp3 limpo.mp3 --aggressiveness 0.8
+uv run python -m src.video.stabilize tremido.mp4 estavel.mp4 --smoothing medio --crop 5
+uv run python -m src.video.stabilize tremido.mp4 estavel_opencv.mp4 --metodo opencv
 uv run python -m src.transcribe clipe.mp4                           # só a transcrição
 uv run python -m src.face clipe.mp4 -o debug.mp4                    # rastreio de rosto
 uv run python -m src.render projeto.project.json -o final.mp4       # só o render
@@ -112,6 +114,37 @@ uv run python -m src.render projeto.project.json -o final.mp4       # só o rend
 
 `--sem-cortes`, `--sem-llm`, `--sem-reenquadrar`, `--sem-legendas`, `--sem-imagens`, `--sem-zooms`
 e `--sticker` ligam e desligam as etapas.
+
+## Estabilizando o vídeo
+
+**No editor**, marque "estabilizar clipes" no grupo *Imagem* e escolha o nível
+leve, médio ou forte. O processamento ocorre por clipe antes de rastrear o rosto
+e de gerar o vídeo. O projeto salva a opção e o nível; a transcrição e os cortes
+continuam usando os clipes originais. O resultado estabilizado de cada clipe fica
+em cache e é reutilizado ao gerar novamente. A mesma opção funciona no job
+"Rastrear rosto".
+
+**Sozinho, pela CLI**, rode `uv run python -m src.video.stabilize entrada.mp4 saida.mp4`
+dentro de `API/`. `--smoothing leve|medio|forte` escolhe a suavização e `--crop 5`
+acrescenta 5% de zoom ao recorte automático das bordas. A CLI mostra as duas
+passadas; `--sem-cache` força novo processamento.
+
+O modo automático prefere os filtros `vidstabdetect` e `vidstabtransform` do
+FFmpeg. Se o FFmpeg não os tiver, usa o fallback OpenCV, que acompanha pontos de
+referência entre quadros, suaviza o movimento e recorta as bordas. Use
+`--metodo opencv` para forçá-lo ou `--metodo vidstab` para exigir os filtros.
+Ambos preservam o áudio original. O cache separa cada clipe, nível, crop e motor.
+
+Os padrões vêm do `.env` em `API/` ou na raiz:
+
+```dotenv
+STABILIZE_SMOOTHING=medio
+STABILIZE_CROP_PERCENT=         # vazio = recorte automático; 0 a 30 = zoom extra (%)
+```
+
+O nível do `.env` vale para novos projetos e para a CLI quando `--smoothing` é
+omitido. O crop vale para a CLI e para o editor quando `--crop` é omitido.
+Valores explícitos na CLI substituem esses padrões.
 
 ## Limpando o áudio
 
