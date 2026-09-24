@@ -131,12 +131,13 @@ src/audio/                 (dentro de API/)
 ## Etapa 4: Ajuste fino e testes
 
 **Tarefas**
-- Testes automatizados comparando LUFS e um score de SNR (relação sinal-ruído) antes/depois em 2-3 áudios de amostra com ruídos diferentes (chiado, ruído de ambiente, eco leve).
-- Expor no `.env` os padrões: `AUDIO_AGGRESSIVENESS`, `AUDIO_TARGET_LUFS` (padrão -16 LUFS, comum para redes sociais).
-- Documentar no `README.md` como usar a CLI e a opção no pipeline.
+- Testes automatizados comparando LUFS e SNR antes/depois em três ruídos diferentes (`tests/test_audio_qualidade.py`, com a fala real de `samples/`). Medido: chiado +18,0 dB de SNR, ambiente +18,9 dB e volume sempre em −15,8/−15,9 LUFS (alvo −16). O eco tem teste próprio, que **prova a limitação**: a reflexão medida por autocorrelação cai só de 0,30 para 0,27 (o SNR não serve ali, porque o DeepFilterNet zera os trechos entre as palavras e infla o número).
+- Padrões no `.env`: `AUDIO_AGGRESSIVENESS` (0,5) e `AUDIO_TARGET_LUFS` (−16), lidos por `AudioParams.do_env()` e usados pela CLI e pelo pipeline.
+- `README.md` com a seção "Limpando o áudio" (uso no editor e pela CLI, com a tabela das medições).
+- Robustez: falha na limpeza de um clipe não derruba o render — aquele clipe fica com o áudio original e o job avisa; o tempo da limpeza aparece como `tempos["limpeza do áudio"]`.
 
 **Critérios de aceite**
-- Testes de SNR/LUFS passam com uma margem definida (ex.: SNR melhora em pelo menos X dB nos áudios de amostra).
+- Testes de SNR/LUFS passam com a margem definida (`GANHO_MINIMO` é por motor: 12/10 dB no DeepFilterNet, 4/6 no noisereduce, 12/3 no afftdn). O eco tem teste próprio, que exige que a reflexão **continue lá** — a cadeia tira ruído, não eco.
 - `README.md` cobre os dois modos de uso (standalone e integrado).
 
 ---
@@ -147,7 +148,7 @@ src/audio/                 (dentro de API/)
 - [x] Etapa 1: Cadeia básica de limpeza
 - [x] Etapa 2: CLI standalone
 - [x] Etapa 3: Integração no pipeline do editor de vídeos
-- [ ] Etapa 4: Ajuste fino e testes
+- [x] Etapa 4: Ajuste fino e testes
 
 ---
 

@@ -110,7 +110,7 @@ def test_cleaning_keeps_the_timeline(tmp_path, motor):
 def test_the_final_video_keeps_the_original_audio_by_default(tmp_path):
     video = make_video(tmp_path / "clipe.mp4", duration=1.0)
     projeto = _projeto([video])
-    assert audios_limpos(projeto, PipelineOptions()) == {}
+    assert audios_limpos(projeto, PipelineOptions()) == ({}, [])
 
 
 @requires_ffmpeg
@@ -118,8 +118,8 @@ def test_with_the_option_on_the_video_gets_the_clean_audio(tmp_path):
     video = make_video(tmp_path / "clipe.mp4", duration=1.0)
     projeto = _projeto([video])
     options = PipelineOptions(limpar_audio=True, parametros_audio=AudioParams(motor="afftdn"))
-    limpos = audios_limpos(projeto, options)
-    assert set(limpos) == {0} and limpos[0].suffix == ".wav"
+    limpos, avisos = audios_limpos(projeto, options)
+    assert set(limpos) == {0} and limpos[0].suffix == ".wav" and avisos == []
 
     # o render passa a trilha limpa para o trecho, mantendo o vídeo do clipe
     metas = [c.meta for c in projeto.timeline.clipes]
@@ -134,7 +134,25 @@ def test_clips_without_audio_are_skipped(tmp_path):
         meta=ClipMeta(duracao=1.0, largura=320, altura=180, fps=30.0, tem_audio=False),
     )
     projeto = Project(timeline=Timeline(clipes=[clip]))
-    assert audios_limpos(projeto, PipelineOptions(limpar_audio=True)) == {}
+    assert audios_limpos(projeto, PipelineOptions(limpar_audio=True)) == ({}, [])
+
+
+@requires_ffmpeg
+def test_a_failed_cleaning_falls_back_to_the_original_audio(tmp_path, monkeypatch):
+    """Melhor um vídeo com o som de antes do que nenhum vídeo."""
+    import src.pipeline as pipeline
+
+    video = make_video(tmp_path / "clipe.mp4", duration=1.0)
+    projeto = _projeto([video])
+
+    def falha(*a, **k):
+        raise RuntimeError("highpass falhou em clipe.mp4: disco cheio")
+
+    monkeypatch.setattr(pipeline, "cached_audio", falha)
+    limpos, avisos = audios_limpos(projeto, PipelineOptions(limpar_audio=True))
+    assert limpos == {}  # o render segue com o áudio original
+    assert len(avisos) == 1 and "não deu para limpar o áudio" in avisos[0]
+    assert "clipe.mp4" in avisos[0]
 
 
 # ------------------------------------------------------------------ transcrição e cache

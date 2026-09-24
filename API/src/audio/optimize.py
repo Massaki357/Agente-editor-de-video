@@ -48,7 +48,11 @@ def _sem_progresso(etapa: str, fracao: float) -> None:
 
 
 class AudioParams(BaseModel):
-    """Parâmetros da limpeza (entram na chave do cache)."""
+    """Parâmetros da limpeza (entram na chave do cache).
+
+    Os padrões de `aggressiveness` e `alvo_lufs` vêm do `.env`
+    (`AUDIO_AGGRESSIVENESS`, `AUDIO_TARGET_LUFS`) via `AudioParams.do_env()`.
+    """
 
     aggressiveness: float = Field(0.5, ge=0, le=1, description="0 não limpa, 1 limpa ao máximo")
     alvo_lufs: float = Field(-16.0, le=0, description="volume alvo (padrão das redes sociais)")
@@ -58,6 +62,16 @@ class AudioParams(BaseModel):
     motor: denoise_mod.Motor | None = Field(
         None, description="forçar um motor de denoise (padrão: o melhor disponível)"
     )
+
+    @classmethod
+    def do_env(cls, settings: Settings | None = None, **campos) -> AudioParams:
+        """Parâmetros com os padrões do `.env`, sobrescritos pelo que for passado."""
+        settings = settings or get_settings()
+        base = {
+            "aggressiveness": settings.audio_aggressiveness,
+            "alvo_lufs": settings.audio_target_lufs,
+        }
+        return cls(**{**base, **campos})
 
 
 @dataclass(frozen=True)
@@ -140,10 +154,10 @@ def optimize_audio(
     entrada, saida = Path(entrada), Path(saida)
     if not entrada.is_file():
         raise FileNotFoundError(f"arquivo não encontrado: {entrada}")
-    if isinstance(params, int | float):
-        params = AudioParams(aggressiveness=float(params))
-    params = params or AudioParams()
     settings = settings or get_settings()
+    if isinstance(params, int | float):
+        params = AudioParams.do_env(settings, aggressiveness=float(params))
+    params = params or AudioParams.do_env(settings)
     passo = on_step or _sem_progresso
 
     chave = cache_key(entrada, params)
@@ -232,7 +246,7 @@ def cached_audio(
     entre execuções, sem copiar o áudio para a pasta do projeto.
     """
     settings = settings or get_settings()
-    params = params or AudioParams()
+    params = params or AudioParams.do_env(settings)
     destino = cache_path(
         "audio_limpo", cache_key(Path(entrada), params), ".wav", cache_dir=settings.cache_dir
     )

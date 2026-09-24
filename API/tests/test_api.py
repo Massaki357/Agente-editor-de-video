@@ -627,3 +627,26 @@ def test_generate_job_with_clean_audio(client, tmp_path, monkeypatch):
     assert job["status"] == "concluido", job
     assert any("Áudio de" in linha for linha in job["log"])  # a cadeia de limpeza rodou
     assert client.get(f"/api/projects/{pid}").json()["video_final_url"]
+
+
+def test_a_failed_audio_cleaning_only_warns(client, tmp_path, monkeypatch):
+    """A limpeza falhou: o vídeo sai com o áudio original e o job avisa (Parte 1, Etapa 4)."""
+    fake_whisper(monkeypatch)
+
+    def falha(*a, **k):
+        raise RuntimeError("highpass falhou em 1.mp4: disco cheio")
+
+    monkeypatch.setattr(pipeline, "cached_audio", falha)
+    pid = novo_projeto(client)
+    client.post(f"/api/projects/{pid}/clips/import", json={"pasta": str(_pasta_tom(tmp_path))})
+    opcoes = {"limpar_audio": True, "cortes_fala": False, "legendas": False, "imagens": False}
+    job = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": opcoes}).json()[
+            "id"
+        ],
+    )
+    assert job["status"] == "concluido", job  # o render não caiu junto
+    avisos = job["resultado"]["avisos"]
+    assert any("não deu para limpar o áudio" in a and "1.mp4" in a for a in avisos), avisos
+    assert client.get(f"/api/projects/{pid}").json()["video_final_url"]

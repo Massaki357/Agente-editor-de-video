@@ -145,15 +145,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "saida", type=Path, help="arquivo de saída .wav ou .mp3 (sempre mono, 48 kHz)"
     )
+    padroes = AudioParams.do_env()
     parser.add_argument(
         "--aggressiveness",
         type=float,
-        default=AudioParams().aggressiveness,
-        help="0 não limpa, 0.5 (padrão) tira ~20 dB de ruído, 1 limpa ao máximo",
+        default=padroes.aggressiveness,
+        help=f"0 não limpa, 1 limpa ao máximo (padrão {padroes.aggressiveness}, do .env)",
     )
     parser.add_argument("--format", choices=FORMATOS, help="formato da saída (padrão: extensão)")
     parser.add_argument(
-        "--lufs", type=float, default=AudioParams().alvo_lufs, help="volume alvo (padrão -16)"
+        "--lufs",
+        type=float,
+        default=padroes.alvo_lufs,
+        help=f"volume alvo em LUFS (padrão {padroes.alvo_lufs}, do .env)",
     )
     parser.add_argument("--motor", help="forçar deepfilternet, noisereduce ou afftdn")
     parser.add_argument("--sem-normalizar", action="store_true", help="não ajusta o volume")

@@ -53,6 +53,8 @@ O arquivo pode ficar na raiz do repositório ou em `API/.env` (este tem precedê
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | acesso ao LLM (cortes de fala, imagens e zooms) |
 | `WHISPER_MODEL` | `large-v3-turbo` na GPU; `small` ou `medium` se for rodar na CPU |
 | `WHISPER_DEVICE` | `auto`, `cuda` ou `cpu` |
+| `AUDIO_AGGRESSIVENESS` | força da limpeza de áudio: 0 não limpa, 0,5 (padrão) tira ~20 dB de ruído, 1 limpa ao máximo |
+| `AUDIO_TARGET_LUFS` | volume alvo do áudio limpo (padrão −16 LUFS) |
 | `PEXELS_API_KEY` / `PIXABAY_API_KEY` | busca das fotos |
 | `CACHE_DIR`, `DATA_DIR`, `LOG_DIR`, `LOG_LEVEL` | onde ficam cache, projetos e logs |
 
@@ -102,6 +104,7 @@ cd API
 uv run python -m src.pipeline ../samples -o ../output/final.mp4     # pipeline completo
 uv run python -m src.pipeline v1.mp4 v2.mp4 -o saida.mp4 --sem-imagens --sem-zooms
 uv run python -m src.audio.optimize aula.mp4 limpo.wav                  # limpar o áudio
+uv run python -m src.audio.optimize podcast.mp3 limpo.mp3 --aggressiveness 0.8
 uv run python -m src.transcribe clipe.mp4                           # só a transcrição
 uv run python -m src.face clipe.mp4 -o debug.mp4                    # rastreio de rosto
 uv run python -m src.render projeto.project.json -o final.mp4       # só o render
@@ -109,6 +112,44 @@ uv run python -m src.render projeto.project.json -o final.mp4       # só o rend
 
 `--sem-cortes`, `--sem-llm`, `--sem-reenquadrar`, `--sem-legendas`, `--sem-imagens`, `--sem-zooms`
 e `--sticker` ligam e desligam as etapas.
+
+## Limpando o áudio
+
+O editor tem um otimizador de áudio próprio: tira o ruído de fundo (ar-condicionado,
+chiado, zumbido) com o **DeepFilterNet** e deixa o volume no padrão das redes sociais
+(−16 LUFS). Dá para usar de duas formas.
+
+**Dentro do editor**, marque "limpar o ruído do áudio do vídeo" no grupo *Áudio* das
+opções (ou `limpar_audio` nas opções do job). Vale para o **áudio do vídeo gerado**; a
+transcrição continua usando o áudio original, porque medimos que limpar antes de
+transcrever piora o reconhecimento do Whisper. Nos ajustes finos ficam a intensidade da
+limpeza e o volume alvo; os padrões vêm do `.env`.
+
+**Sozinho, pela linha de comando** (serve para qualquer áudio ou vídeo, mesmo fora de um
+projeto):
+
+```bash
+cd API
+uv run python -m src.audio.optimize entrevista.mp4 limpo.wav
+uv run python -m src.audio.optimize podcast.mp3 limpo.mp3 --aggressiveness 0.8 --lufs -14
+```
+
+Ele mostra o antes e o depois (nível da fala, ruído, SNR e volume) e a saída é sempre
+mono a 48 kHz. Medido com fala real e ruído sintético, 20 s de áudio:
+
+| ruído | SNR antes | SNR depois | volume antes | volume depois |
+|---|---|---|---|---|
+| chiado (banda toda) | 9,4 dB | 27,4 dB | −26,5 LUFS | −15,8 LUFS |
+| ambiente (ar-condicionado + zumbido) | 17,9 dB | 36,8 dB | −27,1 LUFS | −15,8 LUFS |
+
+**Eco não é ruído.** Num áudio com reflexão de parede, a limpeza ajusta o volume e tira o
+chiado, mas o eco continua: medindo a reflexão em si (autocorrelação no atraso dela), ela
+cai de 0,30 para 0,27 — praticamente nada. Para isso, o jeito é gravar num ambiente com
+menos eco. (O SNR nesse caso engana: o DeepFilterNet zera os trechos entre as palavras e
+o número dispara sem que o eco tenha saído.)
+
+Na primeira vez o DeepFilterNet (~27 MB) é baixado para o cache. Sem ele (ou sem rede),
+a limpeza cai para o `noisereduce` e, por último, para o `afftdn` do FFmpeg.
 
 ## Quando algo dá errado
 
@@ -123,6 +164,7 @@ LLM parece inválida..."), com o detalhe técnico no fim e o log completo do job
 | Vídeo sem rosto detectado | o job avisa; o enquadramento fica centralizado e não há zoom |
 | Vídeo com fps variável | o job avisa; reexporte com fps fixo se o enquadramento atrasar |
 | Fonte HDR | é convertida para SDR automaticamente |
+| Falha ao limpar o áudio | o vídeo sai com o áudio original e o job avisa qual clipe falhou |
 
 ## Testes
 

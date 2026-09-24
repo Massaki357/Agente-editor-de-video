@@ -14,13 +14,14 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import subprocess
 import sys
 import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.audio.optimize import AudioParams, cached_audio
 from src.captions import CaptionStyle, write_captions
@@ -47,7 +48,7 @@ class PipelineOptions(BaseModel):
     #   sem limpeza  0,568  0,685  0,743
     #   com limpeza  0,528  0,575  0,715   (pior nas três)
     limpar_audio: bool = False
-    parametros_audio: AudioParams = AudioParams()
+    parametros_audio: AudioParams = Field(default_factory=AudioParams.do_env)
     cortes: bool = True  # cortar silêncios
     cortes_fala: bool = True  # usar o LLM para cortar erros de fala
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
@@ -77,6 +78,7 @@ class PipelineOptions(BaseModel):
 
 
 class PipelineResult(BaseModel):
+    avisos: list[str] = []  # o que não deu certo sem derrubar o render (ex.: limpeza do áudio)
     video: str
     duracao_final: float
     duracao_original: float
@@ -121,21 +123,34 @@ def audio_do_clipe(
 
 def audios_limpos(
     project: Project, options: PipelineOptions, on_step: StepCallback = _noop
-) -> dict[int, Path]:
-    """Trilha limpa de cada clipe para o render (vazio se a opção está desligada)."""
+) -> tuple[dict[int, Path], list[str]]:
+    """Trilha limpa de cada clipe para o render, mais os avisos do que não deu certo.
+
+    Limpa o clipe **inteiro**, não só os trechos que sobraram dos cortes: assim o WAV
+    continua valendo quando os cortes mudam (que é o que mais muda entre execuções).
+    Se a limpeza de um clipe falhar, aquele clipe fica com o áudio original e o job
+    avisa — melhor um vídeo com o som de antes do que nenhum vídeo.
+    """
     if not options.limpar_audio:
-        return {}
-    limpos = {}
+        return {}, []
+    limpos: dict[int, Path] = {}
+    avisos: list[str] = []
     clipes = project.timeline.clipes
     for i, clip in enumerate(clipes):
         if clip.meta is not None and not clip.meta.tem_audio:
             continue
         on_step("áudio", i / max(len(clipes), 1))
-        caminho = audio_do_clipe(Path(clip.arquivo), options, on_step=on_step)
+        nome = Path(clip.arquivo).name
+        try:
+            caminho = audio_do_clipe(Path(clip.arquivo), options, on_step=on_step)
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            log.warning("Não deu para limpar o áudio de %s: %s", nome, exc, exc_info=True)
+            avisos.append(f"{i + 1}. {nome}: não deu para limpar o áudio; o vídeo usa o original.")
+            continue
         if caminho is not None:
             limpos[i] = caminho
     on_step("áudio", 1.0)
-    return limpos
+    return limpos, avisos
 
 
 def transcribe_project(project: Project, on_step: StepCallback = _noop) -> None:
@@ -280,6 +295,11 @@ def render_project(
             tempos["plano criativo"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        limpos, avisos_audio = audios_limpos(project, options, on_step)
+        if options.limpar_audio:
+            tempos["limpeza do áudio"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         render_timeline(
             timeline,
             output,
@@ -291,11 +311,12 @@ def render_project(
             legendas=legendas,
             overlays=overlays,
             zoom=zoom,
-            audios=audios_limpos(project, options, on_step),
+            audios=limpos,
         )
         tempos["render"] = time.perf_counter() - t0
 
     result = PipelineResult(
+        avisos=avisos_audio,
         video=str(output),
         duracao_final=TimeMap(timeline).duracao,
         duracao_original=sum(c.meta.duracao for c in timeline.clipes if c.meta),

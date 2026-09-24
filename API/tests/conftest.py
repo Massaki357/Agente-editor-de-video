@@ -31,6 +31,10 @@ def isolated_cache(tmp_path_factory, monkeypatch):
             destino.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(origem, destino)
             break
+    # o `.env` do usuário não pode mudar o resultado dos testes: fixa os padrões do áudio
+    # (o ambiente vence o arquivo em `load_settings`)
+    monkeypatch.setenv("AUDIO_AGGRESSIVENESS", "0.5")
+    monkeypatch.setenv("AUDIO_TARGET_LUFS", "-16")
     get_settings.cache_clear()
     yield cache_dir
     get_settings.cache_clear()

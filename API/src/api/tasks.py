@@ -155,6 +155,7 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     if result.plano is not None:
         save_plan(result.plano, store.plan_path(job.projeto_id))
     return {
+        "avisos": list(result.avisos),
         "imagens": result.imagens,
         "zooms": result.zooms,
         "video": VIDEO_FINAL,

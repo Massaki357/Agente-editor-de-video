@@ -27,7 +27,17 @@ class Medidas:
 
     @property
     def snr(self) -> float:
+        """Distância fala–ruído. Com `silencio_digital`, é um piso, não uma medida."""
         return self.fala_db - self.ruido_db
+
+    @property
+    def silencio_digital(self) -> bool:
+        """O fundo virou zero absoluto (o DeepFilterNet faz isso entre as palavras).
+
+        Aí `ruido_db` é a constante `SILENCIO_DB`, não um nível medido: o SNR só diz
+        "não sobrou ruído mensurável", e comparar esse número com outro áudio engana.
+        """
+        return self.ruido_db <= SILENCIO_DB + 1e-9
 
 
 def _rms_db(quadros: np.ndarray) -> np.ndarray:

@@ -36,6 +36,9 @@ class Settings(BaseModel):
     anthropic_api_key: SecretStr | None = None
     whisper_model: str = "large-v3-turbo"
     whisper_device: WhisperDevice = "auto"
+    # Otimizador de áudio (novas-etapas.md, Parte 1)
+    audio_aggressiveness: float = Field(0.5, ge=0, le=1)
+    audio_target_lufs: float = Field(-16.0, le=0)
     pexels_api_key: SecretStr | None = None
     pixabay_api_key: SecretStr | None = None
     cache_dir: Path = Field(default=PROJECT_ROOT / ".cache")
@@ -100,6 +103,8 @@ _ENV_FIELDS = {
     "ANTHROPIC_API_KEY": "anthropic_api_key",
     "WHISPER_MODEL": "whisper_model",
     "WHISPER_DEVICE": "whisper_device",
+    "AUDIO_AGGRESSIVENESS": "audio_aggressiveness",
+    "AUDIO_TARGET_LUFS": "audio_target_lufs",
     "PEXELS_API_KEY": "pexels_api_key",
     "PIXABAY_API_KEY": "pixabay_api_key",
     "CACHE_DIR": "cache_dir",

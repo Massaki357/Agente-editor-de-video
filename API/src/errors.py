@@ -52,6 +52,11 @@ _REGRAS: list[tuple[re.Pattern[str], str]] = [
         "Importe a pasta de novo ou remova o clipe do projeto.",
     ),
     (
+        re.compile(r"highpass falhou|afftdn falhou|deepfilternet|denoise|loudnorm", re.I),
+        'Não deu para limpar o áudio. Desmarque "limpar o ruído do áudio do vídeo" e gere de '
+        "novo, ou rode `python -m src.audio.optimize` no clipe para ver o erro de perto.",
+    ),
+    (
         re.compile(r"pexels|pixabay", re.I),
         "A busca de fotos falhou. Confira `PEXELS_API_KEY` / `PIXABAY_API_KEY` no `.env` e a sua "
         "conexão, ou desligue as imagens nas opções.",
