@@ -414,6 +414,7 @@ def render_project(
                     options.parametros_zoom,
                     settings.output_fps,
                 )
+                zooms = limitar_intensidade_zooms(zooms, plano_usado)
                 n_zooms = len(zooms)
                 zoom = zoom_curve(zooms) if zooms else None
                 log.info("Zooms: %d de %d do plano", n_zooms, len(plano_usado.zoom_intervals()))
@@ -586,6 +587,17 @@ def render_project(
     for nome, dur in tempos.items():
         log.info("  %-22s %6.1f s", nome, dur)
     return result
+
+
+def limitar_intensidade_zooms(
+    zooms: list[tuple[float, float, float]], plano: PlanoImagens
+) -> list[tuple[float, float, float]]:
+    """Limita o pico de cada zoom editado sem ultrapassar o limite seguro do rosto."""
+    caps = {
+        (item.inicio, item.fim): item.intensidade
+        for item in plano.zooms if item.ativo and item.intensidade is not None
+    }
+    return [(a, b, min(pico, caps.get((a, b), pico))) for a, b, pico in zooms]
 
 
 def make_captions(

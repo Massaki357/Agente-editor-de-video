@@ -105,6 +105,7 @@ class ItemZoom(BaseModel):
     inicio: float  # t_out
     duracao: float
     ativo: bool = True
+    intensidade: float | None = Field(default=None, ge=1.02, le=1.6)
 
     @property
     def fim(self) -> float:

@@ -1,7 +1,8 @@
 """Único ponto de acesso ao LLM (LangChain).
 
-O resto do código chama só `run_structured(prompt_name, input, schema)`. Nada de agents, chains
-ou memória: `init_chat_model` + `.with_structured_output(schema, include_raw=True)`.
+O resto do código chama `run_structured` ou `run_tool_turn`. Nada de agents,
+chains legadas ou memória do LangChain: `init_chat_model` com
+`.with_structured_output(...)` ou `.bind_tools(...)`.
 
 Falhas:
 - rede/timeout/429/5xx e resposta fora do schema → retry com backoff exponencial;
@@ -22,7 +23,7 @@ from typing import Any, TypeVar
 
 from langchain.chat_models import init_chat_model
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, ValidationError
 
 from src.config import Settings, get_settings
@@ -300,3 +301,66 @@ def _short(exc: BaseException | None, limit: int = 300) -> str:
         return "sem detalhes"
     text = f"{type(exc).__name__}: {exc}"
     return text if len(text) <= limit else text[:limit] + "..."
+
+
+def run_tool_turn(
+    prompt_name: str,
+    conversation: list[dict[str, Any]],
+    tools: list[type[BaseModel]],
+    *,
+    settings: Settings | None = None,
+    attempts: int = 3,
+) -> dict[str, Any]:
+    """Uma rodada de tool calling, sem expor objetos LangChain a outros módulos."""
+    settings = settings or get_settings()
+    _check_key(settings)
+    messages = [SystemMessage(_load_prompt(prompt_name))]
+    for entry in conversation:
+        role = entry.get("role")
+        if role == "user":
+            messages.append(HumanMessage(str(entry["content"])))
+        elif role == "assistant":
+            messages.append(AIMessage(
+                content=str(entry.get("content") or ""),
+                tool_calls=entry.get("tool_calls") or [],
+            ))
+        elif role == "tool":
+            messages.append(ToolMessage(
+                content=str(entry["content"]), tool_call_id=str(entry["tool_call_id"])
+            ))
+        else:
+            raise ValueError(f"papel de conversa inválido: {role}")
+    last_error: BaseException | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            try:
+                model = _make_model(settings, (
+                    None if settings.llm_model in _no_temperature else TEMPERATURE
+                ))
+                response = model.bind_tools(tools).invoke(messages)
+            except Exception as exc:
+                if not _is_temperature_error(exc):
+                    raise
+                with _lock:
+                    _no_temperature.add(settings.llm_model)
+                model = _make_model(settings, None)
+                response = model.bind_tools(tools).invoke(messages)
+            usage = _usage_of(response)
+            if usage:
+                _add_usage(settings.llm_model, *usage)
+            calls = [
+                {"name": call["name"], "args": call["args"], "id": call["id"]}
+                for call in getattr(response, "tool_calls", [])
+            ]
+            return {"content": str(response.content or ""), "tool_calls": calls}
+        except Exception as exc:
+            if _is_auth_error(exc):
+                raise LLMError(f"Falha de autenticação no LLM: {_short(exc)}") from exc
+            if not _is_transient(exc):
+                raise LLMError(f"Erro do LLM ({settings.llm_model}): {_short(exc)}") from exc
+            last_error = exc
+            if attempt < attempts:
+                _sleep(2 ** (attempt - 1))
+    raise LLMError(
+        f"LLM falhou após {attempts} tentativas ({prompt_name}): {_short(last_error)}"
+    ) from last_error

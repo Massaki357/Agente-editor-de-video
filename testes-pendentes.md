@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Ferramentas do chat pós-render (25/09/2026)
+
+- ✅ **P5-E5: ferramentas aprovadas tecnicamente.** Os schemas Pydantic, a ligação `bind_tools` e o loop do agente foram exercitados com modelo falso, sem rede. O agente listou elementos e trocou uma imagem pelo ID certo; uma duração inválida foi rejeitada pelo código sem alterar o plano. Casos de zoom encoberto por B-roll e encurtamento fora da frase ou da borda da palavra também foram rejeitados. A suíte completa passou; a revisão independente aprovou a etapa.
+- 👀 **P5-C5: conferir o LLM real quando a interface de chat da Etapa 6 estiver pronta.** Reutilize um projeto já gerado com imagens. Peça para listar as imagens e trocar uma delas por outra busca, confira o ID e a pertinência da nova imagem na prévia antes de aplicar. Depois peça uma duração acima do limite e confirme que a ação é recusada sem alterar o vídeo. Isso exige a chave de LLM já configurada e uma chamada paga; nenhum vídeo novo em `samples/` é necessário.
+
 ### Linha do tempo e prévia pós-render (25/09/2026)
 
 - ✅ **P5-E4: fluxo técnico validado.** Testes sintéticos cobriram marcadores dos quatro tipos, troca de imagem e remoção de B-roll, geração de prévia curta sem áudio, confirmação sem alterar quadros vizinhos, rejeição de vídeo obsoleto e desfazer da troca. A suíte completa, Ruff, doctor e build da interface passaram; a avaliação visual com mídia real segue pendente.

@@ -623,7 +623,7 @@ src/editing/
 - [x] Etapa 2: Substituição manual de imagens e vídeos
 - [x] Etapa 3: Histórico e desfazer/refazer
 - [x] Etapa 4: UI de edição pós-render
-- [ ] Etapa 5: Ferramentas do agente de chat (tool calling)
+- [x] Etapa 5: Ferramentas do agente de chat (tool calling)
 - [ ] Etapa 6: Interface de chat
 - [ ] Etapa 7: Testes de integração e robustez
 
@@ -663,6 +663,15 @@ sintéticos cobriram os quatro tipos, troca de imagem, remoção de B-roll,
 rejeição de prévia obsoleta e desfazer. A suíte completa, Ruff, doctor, build
 e revisão independente aprovaram os critérios automatizáveis; a conferência
 visual com vídeo real está em `testes-pendentes.md`.
+
+Etapa 5 verificada: seis ferramentas Pydantic operam por ID sobre um rascunho;
+`agent.py` chama `bind_tools` somente pelo cliente LLM compartilhado. O código
+rejeita durações inválidas, sobreposição, passagem por emendas e zooms ocultos
+por B-roll. Um B-roll só pode ser encurtado até uma palavra da frase original,
+com o fim ajustado exatamente à transcrição. Testes com modelo falso cobriram
+listagem, troca de imagem, validação de duração e retorno do resultado ao LLM;
+suíte completa, Ruff, doctor e revisão independente aprovaram a etapa. A
+conferência com LLM real está em `testes-pendentes.md` para a Etapa 6.
 
 ---
 
