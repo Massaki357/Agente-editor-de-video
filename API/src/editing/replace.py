@@ -45,6 +45,8 @@ def replace_element(
         elif modo == "alternativa":
             if indice is None or not 0 <= indice < len(item.candidatos):
                 raise ValueError("índice de foto alternativa inválido")
+            if item.ativa and indice == item.escolhida:
+                raise ValueError("essa mídia já está selecionada")
             item.escolhida = indice
         elif modo == "upload":
             if upload is None or not upload.is_file() or pid is None:
@@ -82,6 +84,11 @@ def replace_element(
             if indice is None or not 0 <= indice < len(item.alternativas):
                 raise ValueError("índice de vídeo alternativo inválido")
             candidate = VideoCandidate.model_validate(item.alternativas[indice])
+            if (
+                item.ativo and item.aprovado and item.video is not None
+                and item.video.fonte == candidate.fonte and item.video.id == candidate.id
+            ):
+                raise ValueError("essa mídia já está selecionada")
             prepared = prepare_candidate(candidate, item.query, item.duracao_max)
         elif modo == "upload":
             if upload is None or not upload.is_file():

@@ -193,6 +193,20 @@ intervalo do elemento. Trechos sem mudanças vêm do cache. Imagens aceitam PNG,
 JPEG e WebP (até 20 MB); vídeos aceitam MP4, MOV, MKV e WebM (até 60 MB), com
 duração suficiente para o cutaway. O painel aparece apenas para efeitos que
 estavam ligados na última geração.
+Se você alterou a prévia depois de gerar, gere o vídeo novamente antes de
+substituir: o histórico precisa começar do plano que corresponde ao MP4 atual.
+
+Cada substituição concluída cria uma versão do projeto. No resultado, use
+**Desfazer** ou **Refazer** para voltar à mídia anterior ou reaplicar a troca;
+o vídeo é remontado com os segmentos em cache. **Ver versões** mostra o resumo
+de cada edição. Uma nova troca depois de desfazer descarta as versões que
+estavam à frente. Gerar o vídeo integralmente inicia outro histórico. Por
+padrão, são guardadas até 20 versões por projeto; configure
+`HISTORY_MAX_VERSIONS` (2 a 100) em `API/.env` se precisar de outro limite.
+
+Pela API, consulte `GET /api/projects/<id>/history`. As rotas
+`POST /api/projects/<id>/history/undo` e
+`POST /api/projects/<id>/history/redo` iniciam os jobs correspondentes.
 
 Pela API, use `POST /api/projects/<id>/replace/img_003` (ou `broll_001`) com
 `{"modo":"alternativa","indice":1}` ou `{"modo":"busca","query":"..."}`.

@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Histórico e desfazer/refazer pós-render (25/09/2026)
+
+- ✅ **P5-E3: histórico aprovado tecnicamente.** Testes sintéticos confirmaram que Desfazer e Refazer restauram exatamente os bytes do MP4 e o documento do projeto após troca de imagem e B-roll. Também cobriram limite de versões, descarte do ramo de refazer, mídia original ausente, prévia pendente, falha de render e geração malsucedida com opções diferentes. A revisão independente aprovou a etapa; 563 testes passaram na suíte completa (19 de integração não executados), além do build do frontend, Ruff e doctor.
+- 👀 **P5-C3: conferir desfazer/refazer com um vídeo real na interface quando puder.** Em um projeto já gerado, substitua uma imagem, assista, clique em **Desfazer** e confirme que a imagem e o vídeo voltaram ao estado anterior; clique em **Refazer** e confirme que a troca reaparece. Depois, desfaça e faça uma troca diferente para conferir que Refazer fica indisponível. Use o mesmo projeto da conferência P5-C2; não são necessários novos arquivos em `samples/`.
+
 ### Substituição pós-render (25/09/2026)
 
 - ✅ **P5-E2: troca técnica aprovada.** A UI oferece nova busca, alternativa e upload para imagem e B-roll. Testes sintéticos trocaram cada tipo por upload, confirmaram que a nova mídia aparece no intervalo esperado e que os quadros fora dele permanecem iguais. A seleção de alternativa usa candidatos salvos, sem repetir busca. Erros de preparo deixam plano e vídeo anteriores intactos; efeitos desligados bloqueiam a troca. A revisão independente aprovou a etapa. Suíte completa: 560 testes aprovados e 19 de integração não executados; Ruff, build do frontend e doctor passaram (0 faltando).

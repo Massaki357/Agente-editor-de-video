@@ -6,6 +6,7 @@ import {
   mensagemErro,
   type ClipOut,
   type ConfigOut,
+  type HistoryOut,
   type Job,
   type JobTipo,
   type PipelineOptions,
@@ -52,6 +53,8 @@ export default function Workspace({
   // jobs de todos os projetos (mais novos primeiro): a fila da API é global
   const [todosJobs, setTodosJobs] = useState<Job[]>([])
   const [projetos, setProjetos] = useState<ProjectSummary[]>([])
+  const [historico, setHistorico] = useState<HistoryOut | null>(null)
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null) // texto da operação em andamento
   const [cancelando, setCancelando] = useState<string[]>([]) // jobs com cancelamento pedido
@@ -67,14 +70,19 @@ export default function Workspace({
 
   const carregar = useCallback(async () => {
     try {
-      const [p, js, ps] = await Promise.all([
+      const [p, js, ps, h] = await Promise.all([
         api.getProject(projetoId),
         api.listJobs(),
         api.listProjects(),
+        api.getHistory(projetoId)
+          .then((data) => ({ data, erro: null as string | null }))
+          .catch((e: unknown) => ({ data: null, erro: mensagemErro(e) })),
       ])
       setProjeto(p)
       setTodosJobs(js)
       setProjetos(ps)
+      setHistorico(h.data)
+      setErroHistorico(h.erro)
     } catch (e) {
       setErro(mensagemErro(e))
     }
@@ -105,10 +113,10 @@ export default function Workspace({
         if (j && !jobAtivo(j) && !tratados.current.has(j.id)) {
           tratados.current.add(j.id)
           setCancelando((c) => c.filter((id) => id !== j.id))
-          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir') setVersaoPlano((v) => v + 1)
+          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer') setVersaoPlano((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
           if (j.status === 'concluido' && (j.tipo === 'imagens' || j.tipo === 'broll')) setModo('plano')
-          if (j.status === 'concluido' && (j.tipo === 'gerar' || j.tipo === 'substituir')) setModo('resultado')
+          if (j.status === 'concluido' && (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer')) setModo('resultado')
           await carregar()
           onAlterado()
         }
@@ -162,6 +170,20 @@ export default function Workspace({
     setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
   }
 
+  const navegarHistorico = async (acao: 'desfazer' | 'refazer') => {
+    setOcupado(acao === 'desfazer' ? 'desfazendo…' : 'refazendo…')
+    setErro(null)
+    try {
+      const j = acao === 'desfazer' ? await api.undoHistory(projetoId) : await api.redoHistory(projetoId)
+      setTodosJobs((js) => [j, ...js])
+      setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
+    } catch (e) {
+      setErro(mensagemErro(e))
+    } finally {
+      setOcupado(null)
+    }
+  }
+
   const cancelar = async (job: Job) => {
     setCancelando((c) => (c.includes(job.id) ? c : [...c, job.id]))
     try {
@@ -193,6 +215,7 @@ export default function Workspace({
   const clipe = projeto.clipes.find((c) => c.arquivo === selecionado) ?? null
   const jobGerar = jobs.find((j) => j.tipo === 'gerar' && j.status === 'concluido') ?? null
   const jobSubstituir = jobs.find((j) => j.tipo === 'substituir' && j.status === 'concluido') ?? null
+  const jobHistorico = jobs.find((j) => (j.tipo === 'desfazer' || j.tipo === 'refazer') && j.status === 'concluido') ?? null
   // avisos do último job do projeto, até o usuário dispensá-los
   const avisos = jobAtual && avisosOcultos !== jobAtual.id ? avisosDoResultado(jobAtual.resultado) : []
 
@@ -207,10 +230,15 @@ export default function Workspace({
         onAba={setAba}
         jobGerar={jobGerar}
         jobSubstituir={jobSubstituir}
+        jobHistorico={jobHistorico}
+        historico={historico}
+        erroHistorico={erroHistorico}
         plano={plano}
         broll={broll}
         bloqueado={bloqueado}
         onSubstituir={substituir}
+        onDesfazer={() => void navegarHistorico('desfazer')}
+        onRefazer={() => void navegarHistorico('refazer')}
       />
 
       <ClipStrip

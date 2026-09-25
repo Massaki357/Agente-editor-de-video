@@ -621,7 +621,7 @@ src/editing/
 - [x] Etapa 0: `project.json` como documento único e versionado
 - [x] Etapa 1: Segmentação do render
 - [x] Etapa 2: Substituição manual de imagens e vídeos
-- [ ] Etapa 3: Histórico e desfazer/refazer
+- [x] Etapa 3: Histórico e desfazer/refazer
 - [ ] Etapa 4: UI de edição pós-render
 - [ ] Etapa 5: Ferramentas do agente de chat (tool calling)
 - [ ] Etapa 6: Interface de chat
@@ -646,6 +646,15 @@ o render incremental reaproveita os outros segmentos. Os testes sintéticos de
 upload e as alternativas sem nova busca passaram, assim como o build da UI e a
 revisão independente. A avaliação visual na interface com mídia real está em
 `testes-pendentes.md`.
+
+Etapa 3 verificada: cada substituição concluída grava snapshots do projeto,
+resumo dos IDs alterados e SHA-256 do MP4. Desfazer/refazer remonta apenas os
+segmentos envolvidos e só publica o resultado se corresponder exatamente à
+versão salva. O histórico descarta o ramo de refazer após nova edição, limita
+o número de versões configuravelmente e rejeita trocas quando o plano tem
+alterações pendentes que ainda não estão no vídeo. Testes com imagem e B-roll,
+build da interface e revisão independente aprovaram os critérios; a conferência
+visual com vídeo real está em `testes-pendentes.md`.
 
 ---
 

@@ -532,6 +532,46 @@ pre {
 .resultado details {
   width: 100%;
 }
+.historico-edicao {
+  width: 100%;
+  padding: var(--e2) var(--e3);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--painel);
+  font-size: 13px;
+}
+.historico-edicao-topo,
+.historico-edicao-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+}
+.historico-edicao-topo {
+  justify-content: space-between;
+}
+.historico-edicao p {
+  margin: var(--e1) 0 0;
+}
+.historico-edicao details {
+  margin-top: var(--e2);
+}
+.historico-edicao-lista {
+  margin: var(--e2) 0 0;
+  padding-left: var(--e4);
+  max-height: 10rem;
+  overflow-y: auto;
+}
+.historico-edicao-lista li {
+  padding: var(--e1);
+}
+.historico-edicao-lista li[aria-current='step'] {
+  color: var(--acento);
+  font-weight: 600;
+}
+.historico-edicao-lista li span + span {
+  margin-left: var(--e2);
+}
 .player {
   flex: 1 1 auto;
   min-height: 10rem;

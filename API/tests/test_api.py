@@ -29,6 +29,16 @@ def novo_projeto(client, nome="teste") -> str:
     return r.json()["id"]
 
 
+def test_history_empty_project_cannot_undo(client):
+    pid = novo_projeto(client)
+    history = client.get(f"/api/projects/{pid}/history")
+    assert history.status_code == 200
+    assert history.json() == {
+        "entries": [], "cursor": -1, "can_undo": False, "can_redo": False,
+    }
+    assert client.post(f"/api/projects/{pid}/history/undo").status_code == 409
+
+
 def esperar(client, jid: str, timeout: float = 60) -> dict:
     fim = time.monotonic() + timeout
     while time.monotonic() < fim:

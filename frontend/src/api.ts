@@ -294,12 +294,26 @@ export interface UsoLLM {
   modelos: string[]
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir'
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir' | 'desfazer' | 'refazer'
 export type Substituicao =
   | { modo: 'busca'; query: string }
   | { modo: 'alternativa'; indice: number }
   | { modo: 'upload'; arquivo: File }
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
+
+export interface HistoryEntry {
+  version: number
+  summary: string
+  element_ids: string[]
+  created_at: string
+}
+
+export interface HistoryOut {
+  entries: HistoryEntry[]
+  cursor: number
+  can_undo: boolean
+  can_redo: boolean
+}
 
 export interface Job {
   id: string
@@ -325,6 +339,8 @@ const NOMES_JOB: Record<string, string> = {
   broll: 'Preparar B-roll',
   gerar: 'Gerar vídeo',
   substituir: 'Substituir mídia',
+  desfazer: 'Desfazer edição',
+  refazer: 'Refazer edição',
 }
 
 export function nomeJob(tipo: string): string {
@@ -442,6 +458,9 @@ export const api = {
     }
     return request<Job>('POST', path, troca)
   },
+  getHistory: (id: string) => request<HistoryOut>('GET', `/projects/${enc(id)}/history`),
+  undoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/undo`),
+  redoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/redo`),
   fileUrl: (id: string, nome: string) => `${BASE}/projects/${enc(id)}/files/${enc(nome)}`,
 
   createJob: (id: string, tipo: JobTipo, opcoes?: PipelineOptions) =>

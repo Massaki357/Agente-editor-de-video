@@ -1,9 +1,10 @@
 import type { KeyboardEvent } from 'react'
-import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type Job, type ProjectOut, type Substituicao } from '../api'
+import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type HistoryOut, type Job, type ProjectOut, type Substituicao } from '../api'
 import type { EstadoPlano } from '../usePlano'
 import type { EstadoBroll } from '../useBroll'
 import ClipDetails, { type Aba } from './ClipDetails'
 import ImagePlan from './ImagePlan'
+import HistoryControls from './HistoryControls'
 
 export type ModoPalco = 'resultado' | 'clipe' | 'plano'
 
@@ -18,14 +19,19 @@ interface Props {
   /** último job 'gerar' concluído: dá o resumo do vídeo final */
   jobGerar: Job | null
   jobSubstituir: Job | null
+  jobHistorico: Job | null
+  historico: HistoryOut | null
+  erroHistorico: string | null
   plano: EstadoPlano
   broll: EstadoBroll
   bloqueado: boolean
   onSubstituir: (id: string, troca: Substituicao) => Promise<void>
+  onDesfazer: () => void
+  onRefazer: () => void
 }
 
 /** Área principal: resultado, clipe selecionado ou plano criativo. */
-export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, jobSubstituir, plano, broll, bloqueado, onSubstituir }: Props) {
+export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, jobSubstituir, jobHistorico, historico, erroHistorico, plano, broll, bloqueado, onSubstituir, onDesfazer, onRefazer }: Props) {
   const temPlano = plano.dados !== null || broll.dados !== null
   // só mostra as abas que fazem sentido agora
   const abas: { id: ModoPalco; rotulo: string }[] = [
@@ -59,7 +65,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
       </div>
 
       <div className="palco-corpo" id="palco-corpo" role="tabpanel" aria-labelledby={`aba-${atual}`}>
-        {atual === 'resultado' && <Resultado projeto={projeto} jobGerar={jobGerar} jobSubstituir={jobSubstituir} />}
+        {atual === 'resultado' && <Resultado projeto={projeto} jobGerar={jobGerar} jobSubstituir={jobSubstituir} jobHistorico={jobHistorico} historico={historico} erroHistorico={erroHistorico} bloqueado={bloqueado} onDesfazer={onDesfazer} onRefazer={onRefazer} />}
         {atual === 'clipe' && clipe && (
           <>
             <div
@@ -153,9 +159,19 @@ function navegarAbas(ev: KeyboardEvent<HTMLDivElement>) {
 }
 
 /** Player do vídeo final com o resumo do último render. */
-function Resultado({ projeto, jobGerar, jobSubstituir }: { projeto: ProjectOut; jobGerar: Job | null; jobSubstituir: Job | null }) {
+function Resultado({ projeto, jobGerar, jobSubstituir, jobHistorico, historico, erroHistorico, bloqueado, onDesfazer, onRefazer }: {
+  projeto: ProjectOut
+  jobGerar: Job | null
+  jobSubstituir: Job | null
+  jobHistorico: Job | null
+  historico: HistoryOut | null
+  erroHistorico: string | null
+  bloqueado: boolean
+  onDesfazer: () => void
+  onRefazer: () => void
+}) {
   const original = projeto.video_final_url
-  const versao = [jobGerar, jobSubstituir].filter((j): j is Job => j !== null).map((j) => j.terminado ?? j.criado).sort().at(-1)
+  const versao = [jobGerar, jobSubstituir, jobHistorico].filter((j): j is Job => j !== null).map((j) => j.terminado ?? j.criado).sort().at(-1)
   const url = original ? `${original}${original.includes('?') ? '&' : '?'}v=${encodeURIComponent(versao ?? projeto.atualizado)}` : null
   if (!url) {
     return (
@@ -173,13 +189,17 @@ function Resultado({ projeto, jobGerar, jobSubstituir }: { projeto: ProjectOut; 
   const zooms = numeroDoResultado(resultado, 'zooms')
   const broll = numeroDoResultado(resultado, 'broll')
   const removido = numeroDoResultado(resultado, 'removido_pct')
+  const ultimaEdicao = [jobSubstituir, jobHistorico]
+    .filter((j): j is Job => j !== null)
+    .sort((a, b) => b.criado.localeCompare(a.criado))[0]
 
   return (
     <div className="resultado">
       <video key={url} src={url} controls preload="metadata" className="player vertical" />
-      {jobSubstituir && (!jobGerar || jobSubstituir.criado > jobGerar.criado) && (
-        <p className="suave" role="status">Substituição concluída. O vídeo final foi atualizado.</p>
+      {ultimaEdicao && (!jobGerar || ultimaEdicao.criado > jobGerar.criado) && (
+        <p className="suave" role="status">{ultimaEdicao.tipo === 'substituir' ? 'Substituição' : ultimaEdicao.tipo === 'desfazer' ? 'Edição desfeita' : 'Edição refeita'}{ultimaEdicao.tipo === 'substituir' ? ' concluída' : ''}. O vídeo final foi atualizado.</p>
       )}
+      <HistoryControls history={historico} erro={erroHistorico} bloqueado={bloqueado} onDesfazer={onDesfazer} onRefazer={onRefazer} />
       <div className="linha entre">
         <p className="suave numeros">
           {fmtSeg(duracao ?? projeto.duracao_total)}

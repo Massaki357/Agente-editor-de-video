@@ -43,6 +43,7 @@ class Settings(BaseModel):
     # Estabilizador de vídeo (novas-etapas.md, Parte 2)
     stabilize_smoothing: StabilizeSmoothing = "medio"
     stabilize_crop_percent: float | None = Field(None, ge=0, le=30)
+    history_max_versions: int = Field(20, ge=2, le=100)
     pexels_api_key: SecretStr | None = None
     pixabay_api_key: SecretStr | None = None
     cache_dir: Path = Field(default=PROJECT_ROOT / ".cache")
@@ -111,6 +112,7 @@ _ENV_FIELDS = {
     "AUDIO_TARGET_LUFS": "audio_target_lufs",
     "STABILIZE_SMOOTHING": "stabilize_smoothing",
     "STABILIZE_CROP_PERCENT": "stabilize_crop_percent",
+    "HISTORY_MAX_VERSIONS": "history_max_versions",
     "PEXELS_API_KEY": "pexels_api_key",
     "PIXABAY_API_KEY": "pixabay_api_key",
     "CACHE_DIR": "cache_dir",

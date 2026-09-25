@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +22,7 @@ from src.project import Project
 
 log = logging.getLogger(__name__)
 
-TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar", "substituir")
+TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar", "substituir", "desfazer", "refazer")
 VIDEO_FINAL = "final.mp4"
 
 
@@ -41,6 +43,8 @@ def make_runner(store: ProjectStore):
             "broll": broll,
             "gerar": gerar,
             "substituir": substituir,
+            "desfazer": navegar_historico,
+            "refazer": navegar_historico,
         }
         tarefa = tarefas.get(job.tipo)
         if tarefa is None:
@@ -226,6 +230,12 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     store.save(job.projeto_id, project)  # trechos e offsets calculados
     if result.plano is not None:
         store.save_plan(job.projeto_id, result.plano)
+    from src.editing.history import clear_history, save_rendered_checkpoint
+
+    clear_history(store.dir(job.projeto_id))
+    save_rendered_checkpoint(
+        store.dir(job.projeto_id), store.load(job.projeto_id), saida / VIDEO_FINAL
+    )
     return {
         "avisos": list(result.avisos),
         "imagens": result.imagens,
@@ -243,12 +253,17 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
 
 def substituir(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     """Troca mídia por ID e renderiza só os segmentos afetados, sem refazer cortes."""
+    from src.config import get_settings
+    from src.editing.history import record_edit, save_rendered_checkpoint, video_sha256
     from src.editing.replace import replace_element
 
     pid = job.projeto_id
     args = job.opcoes or {}
     element_id = str(args["element_id"])
     project = store.load(pid)
+    before = project.model_copy(deep=True)
+    output = store.saida_dir(pid) / VIDEO_FINAL
+    before_video_hash = video_sha256(output)
     plano = store.load_plan(pid)
     if plano is None or not args.get("render_options"):
         raise ValueError("gere o vídeo antes de substituir um elemento")
@@ -260,8 +275,9 @@ def substituir(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]
         upload=Path(args["upload"]) if args.get("upload") else None,
         pid=pid,
     )
+    if updated == plano:
+        raise ValueError("essa mídia já está selecionada")
     ctx.step("substituição", 1.0)
-    output = store.saida_dir(pid) / VIDEO_FINAL
     result = pipeline.render_project(
         project, output, options, ctx.step, updated,
         render_cache_dir=store.dir(pid) / "render_cache",
@@ -271,9 +287,83 @@ def substituir(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]
     project.opcoes_ultima_geracao = options.model_dump(mode="json")
     store.save(pid, project)
     store.save_plan(pid, updated)
+    record_edit(
+        store.dir(pid), before, store.load(pid), {element_id},
+        max_versions=get_settings().history_max_versions,
+        before_video_hash=before_video_hash,
+        after_video_hash=video_sha256(output),
+    )
+    save_rendered_checkpoint(store.dir(pid), store.load(pid), output)
     return {
         "video": VIDEO_FINAL,
         "elemento": element_id,
+        "segmentos_renderizados": result.segmentos_renderizados,
+        "segmentos_reutilizados": result.segmentos_reutilizados,
+        "avisos": list(result.avisos),
+    }
+
+
+def navegar_historico(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Restaura uma versão e remonta somente os segmentos do elemento alterado."""
+    from src.editing.history import (
+        navigation_target,
+        save_rendered_checkpoint,
+        set_cursor,
+        video_sha256,
+    )
+    from src.editing.project_schema import plano_do_documento
+
+    pid = job.projeto_id
+    project_dir = store.dir(pid)
+    current = store.load(pid)
+    direction = "undo" if job.tipo == "desfazer" else "redo"
+    final = store.saida_dir(pid) / VIDEO_FINAL
+    target, changed_ids, target_cursor, expected_hash = navigation_target(
+        project_dir, current, direction, video_sha256(final)
+    )
+    if not changed_ids:
+        raise ValueError("versão sem IDs alterados")
+    options = PipelineOptions.model_validate((job.opcoes or {})["render_options"])
+    plan = plano_do_documento(target.documento)
+    if plan is None:
+        raise ValueError("versão sem plano criativo")
+    required_id = None
+    if len(changed_ids) == 1:
+        element_id = next(iter(changed_ids))
+        if element_id.startswith("img_") and options.imagens and any(
+            f"img_{item.id:03d}" == element_id and item.ativa for item in plan.itens
+        ):
+            required_id = element_id
+        if element_id.startswith("broll_") and options.broll and any(
+            f"broll_{item.id:03d}" == element_id
+            and item.ativo and item.aprovado and item.video is not None
+            for item in plan.broll
+        ):
+            required_id = element_id
+    with tempfile.TemporaryDirectory(prefix="historico_", dir=final.parent) as folder:
+        candidate = Path(folder) / VIDEO_FINAL
+        ctx.step("histórico", 0.0)
+        result = pipeline.render_project(
+            target.model_copy(deep=True), candidate, options, ctx.step, plan,
+            render_cache_dir=project_dir / "render_cache",
+            ids_alterados=changed_ids, reuse_timeline=True,
+            required_element_id=required_id,
+        )
+        ctx.step("histórico", 1.0)
+        if video_sha256(candidate) != expected_hash:
+            raise ValueError("vídeo restaurado difere da versão salva; confira a mídia de origem")
+        os.replace(candidate, final)
+    store.save(pid, target)
+    if store.plan_path(pid).exists():
+        from src.images import save_plan
+
+        save_plan(plan, store.plan_path(pid))
+    set_cursor(project_dir, target_cursor + (1 if direction == "undo" else -1), target_cursor)
+    save_rendered_checkpoint(project_dir, store.load(pid), final)
+    return {
+        "video": VIDEO_FINAL,
+        "elementos": sorted(changed_ids),
+        "versao": target_cursor,
         "segmentos_renderizados": result.segmentos_renderizados,
         "segmentos_reutilizados": result.segmentos_reutilizados,
         "avisos": list(result.avisos),

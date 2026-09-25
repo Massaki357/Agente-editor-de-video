@@ -298,6 +298,7 @@ def test_broll_upload_job_replaces_cutaway_and_keeps_other_frames(tmp_path, monk
         assert initial["status"] == "concluido", initial
         final = store.saida_dir(pid) / "final.mp4"
         before = _frames(final)
+        before_bytes = final.read_bytes()
         upload = client.post(
             f"/api/projects/{pid}/replace/broll_001/upload",
             files={"file": ("green.mp4", green.read_bytes(), "video/mp4")},
@@ -307,8 +308,18 @@ def test_broll_upload_job_replaces_cutaway_and_keeps_other_frames(tmp_path, monk
         assert changed["status"] == "concluido", changed
         assert changed["resultado"]["segmentos_reutilizados"] > 0
         after = _frames(final)
+        after_bytes = final.read_bytes()
         assert np.array_equal(before[30], after[30])
         assert not np.array_equal(before[90], after[90])
         saved = store.load_plan(pid).broll[0]
         assert saved.video.fonte == "upload"
         assert client.get(f"/api/projects/{pid}/broll/1/video").status_code == 200
+        undone = client.post(f"/api/projects/{pid}/history/undo")
+        assert undone.status_code == 202
+        assert _job(client, undone.json()["id"])["status"] == "concluido"
+        assert final.read_bytes() == before_bytes
+        assert store.load_plan(pid).broll[0].video.id == "blue"
+        redone = client.post(f"/api/projects/{pid}/history/redo")
+        assert redone.status_code == 202
+        assert _job(client, redone.json()["id"])["status"] == "concluido"
+        assert final.read_bytes() == after_bytes
