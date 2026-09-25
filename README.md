@@ -214,6 +214,28 @@ Para upload, use `POST /api/projects/<id>/replace/<elemento>/upload` com o campo
 multipart `file`. Todas as rotas devolvem um job `substituir`, consultável em
 `GET /api/jobs/<id>`.
 
+### Editar pela linha do tempo
+
+Depois de gerar o vídeo, abra a aba **Edição**. A linha do tempo marca imagens,
+B-roll, zooms e legendas de destaque; a lista abaixo ajuda a localizar cada
+elemento pelo tempo e pelo nome. Selecione um marcador para trocar uma imagem
+ou B-roll por alternativa salva, nova busca ou arquivo próprio, ou para remover
+qualquer um dos quatro tipos. Clique em **Gerar prévia do trecho** e assista ao
+vídeo curto em resolução reduzida e sem áudio. **Aplicar ao vídeo final** só
+aparece depois que a prévia estiver pronta. O vídeo final permanece intacto até
+essa confirmação. A edição aplicada entra no histórico e pode ser desfeita.
+Se o plano ou o vídeo mudar depois da prévia, gere outra antes de aplicar.
+
+Pela API, `GET /api/projects/<id>/editor` lista os marcadores. Use
+`POST /api/projects/<id>/editor/<elemento>/preview` com
+`{"action":"remove"}` ou `{"action":"replace","mode":"alternativa","index":1}`;
+para busca, use `"mode":"busca"` e `"query"`. O upload usa
+`POST /api/projects/<id>/editor/<elemento>/preview/upload` com `file`.
+O job devolve `token` e `preview_url`; depois de assistir, chame
+`POST /api/projects/<id>/editor/previews/<token>/apply`. A troca direta da aba
+**Plano criativo** continua disponível para quem não precisa conferir uma
+prévia do trecho.
+
 ## Estabilizando o vídeo
 
 **No editor**, marque "estabilizar clipes" no grupo *Imagem* e escolha o nível

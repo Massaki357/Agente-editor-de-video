@@ -29,7 +29,7 @@ export default function ImagePlan({ plano, broll, bloqueado, temVideo, imagensHa
     <div className="plano">
       <div className="linha entre">
         <p className="suave">
-          Ajustes da prévia entram no próximo render. Para trocar uma imagem ou vídeo no resultado atual, use "substituir" no item.
+          Ajustes do plano entram no próximo render. Para ver uma prévia antes de editar o vídeo final, use a aba Edição. A troca direta continua disponível em cada item.
         </p>
         <button type="button" className="pequeno" onClick={plano.recarregar} disabled={plano.carregando}>
           recarregar

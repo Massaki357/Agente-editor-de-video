@@ -215,12 +215,16 @@ def render_incremental(
     ids_alterados: set[str] | None = None,
     force_full: bool = False,
     max_gap: float = 3.0,
+    preview_range: tuple[float, float] | None = None,
+    mute_audio: bool = False,
     progress: Callable[[int, int], None] | None = None,
 ) -> IncrementalResult:
     """Só renderiza segmentos sem cache ou tocados pelos IDs alterados."""
     output, cache_dir = Path(output), Path(cache_dir)
     metas = [_clip_meta(clip.arquivo, clip.meta) for clip in timeline.clipes]
     base = plan_segments(timeline, metas, fps, audios)
+    if mute_audio:
+        base = [replace(seg, tem_audio=False, audio=None) for seg in base]
     if not base:
         raise RenderError("timeline sem trechos para renderizar")
     if broll:
@@ -249,6 +253,16 @@ def render_incremental(
         destaques_ativos=destaque_ass,
         legendas_ids=frozenset(e.id for e in legendas_eventos), max_gap=max_gap,
     )
+    if preview_range is not None:
+        start, end = preview_range
+        if start < 0 or end <= start:
+            raise ValueError("intervalo de prévia inválido")
+        planned = [
+            item for item in planned
+            if _overlap(item.render.t_out, item.render.t_out + item.render.frames / fps, start, end)
+        ]
+        if not planned:
+            raise RenderError("nenhum segmento no intervalo da prévia")
     cache_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = cache_dir / "manifest.json"
     try:
@@ -294,7 +308,7 @@ def render_incremental(
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="montagem_", dir=output.parent) as work:
         tmp = Path(work) / "final.mp4"
-        _concat(files, [item.render for item in planned], tmp, settings)
+        _concat(files, [item.render for item in planned], tmp, settings, mute_audio=mute_audio)
         os.replace(tmp, output)
     atomic_write_text(manifest_path, json.dumps({"segmentos": manifest}, indent=2))
     if progress:

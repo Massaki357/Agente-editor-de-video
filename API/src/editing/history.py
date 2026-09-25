@@ -141,11 +141,15 @@ def _element(project: Project, element_id: str) -> dict[str, Any] | None:
             "query": data.get("query"),
             "fonte": selected.get("fonte"),
             "id": selected.get("id"),
+            "ativo": found.ativo,
         }
     if found.tipo == "broll":
         data = found.dados
         video = data.get("video") or {}
-        return {"query": data.get("query"), "fonte": video.get("fonte"), "id": video.get("id")}
+        return {
+            "query": data.get("query"), "fonte": video.get("fonte"),
+            "id": video.get("id"), "ativo": found.ativo,
+        }
     return {"tipo": found.tipo, "inicio": found.inicio, "fim": found.fim, "ativo": found.ativo}
 
 
@@ -160,13 +164,21 @@ def _summary(element_ids: list[str], diff: dict[str, dict[str, Any]]) -> str:
     if len(element_ids) != 1:
         return f"Alteração de {len(element_ids)} elementos"
     element_id = element_ids[0]
-    label = "Imagem" if element_id.startswith("img_") else "B-roll"
+    label = next(
+        (name for prefix, name in (
+            ("img_", "Imagem"), ("broll_", "B-roll"),
+            ("zoom_", "Zoom"), ("highlight_", "Destaque"),
+        ) if element_id.startswith(prefix)),
+        "Elemento",
+    )
     before = diff[element_id]["antes"] or {}
     after = diff[element_id]["depois"] or {}
     if before.get("query") != after.get("query"):
         change = f"busca '{before.get('query') or '?'}' → '{after.get('query') or '?'}'"
     elif before.get("fonte") != after.get("fonte"):
         change = f"{before.get('fonte') or '?'} → {after.get('fonte') or '?'}"
+    elif before.get("ativo") and not after.get("ativo", True):
+        change = "removido"
     else:
         change = "mídia substituída"
     return f"{label} {element_id}: {change}"

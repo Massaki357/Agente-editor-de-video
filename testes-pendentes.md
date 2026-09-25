@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Linha do tempo e prévia pós-render (25/09/2026)
+
+- ✅ **P5-E4: fluxo técnico validado.** Testes sintéticos cobriram marcadores dos quatro tipos, troca de imagem e remoção de B-roll, geração de prévia curta sem áudio, confirmação sem alterar quadros vizinhos, rejeição de vídeo obsoleto e desfazer da troca. A suíte completa, Ruff, doctor e build da interface passaram; a avaliação visual com mídia real segue pendente.
+- 👀 **P5-C4: conferir a aba Edição com um projeto real já gerado.** Localize na linha do tempo uma imagem e um B-roll, selecione cada um e gere a prévia de troca por alternativa ou upload. Confira se o trecho exibido corresponde ao que foi dito, se o vídeo final fica igual antes de clicar em **Aplicar ao vídeo final**, e se a troca e o Desfazer aparecem no resultado. Verifique também se zooms e destaques aparecem nos tempos esperados. Pode reutilizar o projeto de P5-C2/P5-C3; nenhum vídeo novo em `samples/` é necessário.
+
 ### Histórico e desfazer/refazer pós-render (25/09/2026)
 
 - ✅ **P5-E3: histórico aprovado tecnicamente.** Testes sintéticos confirmaram que Desfazer e Refazer restauram exatamente os bytes do MP4 e o documento do projeto após troca de imagem e B-roll. Também cobriram limite de versões, descarte do ramo de refazer, mídia original ausente, prévia pendente, falha de render e geração malsucedida com opções diferentes. A revisão independente aprovou a etapa; 563 testes passaram na suíte completa (19 de integração não executados), além do build do frontend, Ruff e doctor.

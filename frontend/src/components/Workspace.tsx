@@ -6,6 +6,7 @@ import {
   mensagemErro,
   type ClipOut,
   type ConfigOut,
+  type EditorAction,
   type HistoryOut,
   type Job,
   type JobTipo,
@@ -59,6 +60,7 @@ export default function Workspace({
   const [ocupado, setOcupado] = useState<string | null>(null) // texto da operação em andamento
   const [cancelando, setCancelando] = useState<string[]>([]) // jobs com cancelamento pedido
   const [versaoPlano, setVersaoPlano] = useState(0) // recarrega o plano criativo
+  const [versaoEditor, setVersaoEditor] = useState(0)
   const [modo, setModo] = useState<ModoPalco>('resultado')
   const [selecionado, setSelecionado] = useState<string | null>(null) // arquivo do clipe aberto
   const [aba, setAba] = useState<Aba>('video')
@@ -113,7 +115,8 @@ export default function Workspace({
         if (j && !jobAtivo(j) && !tratados.current.has(j.id)) {
           tratados.current.add(j.id)
           setCancelando((c) => c.filter((id) => id !== j.id))
-          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer') setVersaoPlano((v) => v + 1)
+          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer' || j.tipo === 'aplicar_edicao') setVersaoPlano((v) => v + 1)
+          if (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer' || j.tipo === 'aplicar_edicao') setVersaoEditor((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
           if (j.status === 'concluido' && (j.tipo === 'imagens' || j.tipo === 'broll')) setModo('plano')
           if (j.status === 'concluido' && (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer')) setModo('resultado')
@@ -170,6 +173,20 @@ export default function Workspace({
     setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
   }
 
+  const iniciarPreview = async (elementoId: string, acao: EditorAction): Promise<Job> => {
+    const j = await api.previewEdit(projetoId, elementoId, acao)
+    setTodosJobs((js) => [j, ...js])
+    setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
+    return j
+  }
+
+  const aplicarEdicao = async (token: string): Promise<Job> => {
+    const j = await api.applyEdit(projetoId, token)
+    setTodosJobs((js) => [j, ...js])
+    setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
+    return j
+  }
+
   const navegarHistorico = async (acao: 'desfazer' | 'refazer') => {
     setOcupado(acao === 'desfazer' ? 'desfazendo…' : 'refazendo…')
     setErro(null)
@@ -216,6 +233,7 @@ export default function Workspace({
   const jobGerar = jobs.find((j) => j.tipo === 'gerar' && j.status === 'concluido') ?? null
   const jobSubstituir = jobs.find((j) => j.tipo === 'substituir' && j.status === 'concluido') ?? null
   const jobHistorico = jobs.find((j) => (j.tipo === 'desfazer' || j.tipo === 'refazer') && j.status === 'concluido') ?? null
+  const jobEdicao = jobs.find((j) => j.tipo === 'aplicar_edicao' && j.status === 'concluido') ?? null
   // avisos do último job do projeto, até o usuário dispensá-los
   const avisos = jobAtual && avisosOcultos !== jobAtual.id ? avisosDoResultado(jobAtual.resultado) : []
 
@@ -231,6 +249,7 @@ export default function Workspace({
         jobGerar={jobGerar}
         jobSubstituir={jobSubstituir}
         jobHistorico={jobHistorico}
+        jobEdicao={jobEdicao}
         historico={historico}
         erroHistorico={erroHistorico}
         plano={plano}
@@ -239,6 +258,10 @@ export default function Workspace({
         onSubstituir={substituir}
         onDesfazer={() => void navegarHistorico('desfazer')}
         onRefazer={() => void navegarHistorico('refazer')}
+        jobs={jobs}
+        versaoEditor={versaoEditor}
+        onPreview={iniciarPreview}
+        onAplicar={aplicarEdicao}
       />
 
       <ClipStrip

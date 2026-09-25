@@ -22,7 +22,10 @@ from src.project import Project
 
 log = logging.getLogger(__name__)
 
-TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar", "substituir", "desfazer", "refazer")
+TIPOS = (
+    "transcrever", "rosto", "imagens", "broll", "gerar", "substituir",
+    "desfazer", "refazer", "previsualizar", "aplicar_edicao",
+)
 VIDEO_FINAL = "final.mp4"
 
 
@@ -45,6 +48,8 @@ def make_runner(store: ProjectStore):
             "substituir": substituir,
             "desfazer": navegar_historico,
             "refazer": navegar_historico,
+            "previsualizar": previsualizar,
+            "aplicar_edicao": aplicar_edicao,
         }
         tarefa = tarefas.get(job.tipo)
         if tarefa is None:
@@ -364,6 +369,151 @@ def navegar_historico(store: ProjectStore, job: Job, ctx: JobContext) -> dict[st
         "video": VIDEO_FINAL,
         "elementos": sorted(changed_ids),
         "versao": target_cursor,
+        "segmentos_renderizados": result.segmentos_renderizados,
+        "segmentos_reutilizados": result.segmentos_reutilizados,
+        "avisos": list(result.avisos),
+    }
+
+
+def previsualizar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Prepara mudança sem publicá-la e renderiza somente seu trecho em 360×640."""
+    import shutil
+
+    from src.config import get_settings
+    from src.editing.history import rendered_matches, video_sha256
+    from src.editing.preview import (
+        PreviewProposal,
+        clean_previews,
+        document_sha256,
+        limit_plan,
+        preview_dir,
+        preview_window,
+        remove_element,
+        save_proposal,
+    )
+    from src.editing.replace import replace_element
+
+    pid = job.projeto_id
+    args = job.opcoes or {}
+    project_dir = store.dir(pid)
+    project = store.load(pid)
+    plan = store.load_plan(pid)
+    final = store.saida_dir(pid) / VIDEO_FINAL
+    if plan is None or not rendered_matches(project_dir, project, final):
+        raise ValueError("o projeto mudou desde a solicitação da prévia")
+    element_id = str(args["element_id"])
+    action = args["action"]
+    ctx.step("prévia", 0.0)
+    if action == "remove":
+        updated = remove_element(plan, element_id)
+    else:
+        updated = replace_element(
+            plan, element_id, args["mode"], query=args.get("query"),
+            indice=args.get("index"),
+            upload=Path(args["upload"]) if args.get("upload") else None,
+            pid=pid,
+        )
+    if updated == plan:
+        raise ValueError("a edição não alterou o elemento")
+    options = PipelineOptions.model_validate(args["render_options"])
+    window = preview_window(updated, element_id, project.timeline.duracao_total)
+    preview_plan = limit_plan(updated, window)
+    token = args["token"]
+    folder = preview_dir(project_dir, token)
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        settings = get_settings()
+        width = max(2, min(360, settings.output_width) // 2 * 2)
+        height = max(2, min(640, settings.output_height) // 2 * 2)
+        pipeline.render_project(
+            project.model_copy(deep=True), folder / "preview.mp4", options,
+            ctx.step, preview_plan, render_cache_dir=folder / "cache",
+            ids_alterados={element_id}, reuse_timeline=True,
+            required_element_id=element_id if action == "replace" else None,
+            preview_size=(width, height), preview_range=window,
+            mute_preview_audio=True,
+        )
+        ctx.step("prévia", 1.0)
+        proposal = PreviewProposal(
+            token=token, element_id=element_id, action=action,
+            base_sha256=video_sha256(final),
+            base_document_sha256=document_sha256(project),
+            plan=updated, render_options=options.model_dump(mode="json"),
+            inicio=window[0], fim=window[1],
+        )
+        save_proposal(project_dir, proposal)
+        shutil.rmtree(folder / "cache", ignore_errors=True)
+        (folder / "preview.ass").unlink(missing_ok=True)
+        clean_previews(project_dir)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return {
+        "token": token,
+        "preview_url": f"/api/projects/{pid}/editor/previews/{token}/video",
+        "inicio": window[0], "fim": window[1],
+        "elemento": element_id, "acao": action,
+    }
+
+
+def aplicar_edicao(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Aplica proposta aprovada, renderiza incrementalmente e registra histórico."""
+    import shutil
+
+    from src.config import get_settings
+    from src.editing.history import (
+        record_edit,
+        rendered_matches,
+        save_rendered_checkpoint,
+        video_sha256,
+    )
+    from src.editing.preview import document_sha256, load_proposal, preview_dir
+
+    pid = job.projeto_id
+    project_dir = store.dir(pid)
+    token = str((job.opcoes or {})["token"])
+    proposal = load_proposal(project_dir, token)
+    current = store.load(pid)
+    final = store.saida_dir(pid) / VIDEO_FINAL
+    if not rendered_matches(project_dir, current, final):
+        raise ValueError("o plano mudou desde a prévia; faça outra prévia")
+    if (
+        video_sha256(final) != proposal.base_sha256
+        or document_sha256(current) != proposal.base_document_sha256
+    ):
+        raise ValueError("o vídeo mudou desde a prévia; faça outra prévia")
+    options = PipelineOptions.model_validate(proposal.render_options)
+    with tempfile.TemporaryDirectory(prefix="aplicar_edicao_", dir=final.parent) as folder:
+        candidate = Path(folder) / VIDEO_FINAL
+        ctx.step("aplicação", 0.0)
+        updated = current.model_copy(deep=True)
+        result = pipeline.render_project(
+            updated, candidate, options, ctx.step,
+            proposal.plan, render_cache_dir=project_dir / "render_cache",
+            ids_alterados={proposal.element_id}, reuse_timeline=True,
+            required_element_id=(
+                proposal.element_id if proposal.action == "replace" else None
+            ),
+        )
+        ctx.step("aplicação", 1.0)
+        before_hash = proposal.base_sha256
+        after_hash = video_sha256(candidate)
+        os.replace(candidate, final)
+        caption = candidate.with_suffix(".ass")
+        if caption.is_file():
+            os.replace(caption, final.with_suffix(".ass"))
+    updated.opcoes_ultima_geracao = options.model_dump(mode="json")
+    store.save(pid, updated)
+    store.save_plan(pid, result.plano or proposal.plan)
+    record_edit(
+        project_dir, current, store.load(pid), {proposal.element_id},
+        max_versions=get_settings().history_max_versions,
+        before_video_hash=before_hash, after_video_hash=after_hash,
+    )
+    save_rendered_checkpoint(project_dir, store.load(pid), final)
+    shutil.rmtree(preview_dir(project_dir, token), ignore_errors=True)
+    return {
+        "video": VIDEO_FINAL, "elemento": proposal.element_id, "acao": proposal.action,
         "segmentos_renderizados": result.segmentos_renderizados,
         "segmentos_reutilizados": result.segmentos_reutilizados,
         "avisos": list(result.avisos),

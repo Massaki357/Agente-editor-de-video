@@ -543,7 +543,8 @@ def _crop_subpixel(
 
 
 def _concat(
-    files: list[Path], segments: list[Segment], dest: Path, settings: RenderSettings
+    files: list[Path], segments: list[Segment], dest: Path, settings: RenderSettings,
+    *, mute_audio: bool = False,
 ) -> Path:
     """Concat demuxer: vídeo copiado, áudio PCM → AAC uma única vez.
 
@@ -560,13 +561,16 @@ def _concat(
     cmd = [
         *FFMPEG_BASE,
         "-f", "concat", "-safe", "0", "-i", str(lista),
-        "-map", "0:v:0", "-map", "0:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k", "-ar", str(settings.sample_rate), "-ac", "2",
-        "-video_track_timescale", str(settings.fps * 512),
-        "-movflags", "+faststart",
-        str(dest),
-    ]  # fmt: skip
+        "-map", "0:v:0", "-c:v", "copy",
+    ]
+    if mute_audio:
+        cmd += ["-an"]
+    else:
+        cmd += [
+            "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(settings.sample_rate), "-ac", "2",
+        ]
+    cmd += ["-video_track_timescale", str(settings.fps * 512), "-movflags", "+faststart", str(dest)]
     _run_ffmpeg(cmd, "concatenação")
     return dest
 

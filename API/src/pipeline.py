@@ -319,6 +319,9 @@ def render_project(
     ids_alterados: set[str] | None = None,
     reuse_timeline: bool = False,
     required_element_id: str | None = None,
+    preview_size: tuple[int, int] | None = None,
+    preview_range: tuple[float, float] | None = None,
+    mute_preview_audio: bool = False,
 ) -> PipelineResult:
     """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final.
 
@@ -353,6 +356,12 @@ def render_project(
         primeiro = next((c for c in timeline.clipes if c.trechos), timeline.clipes[0])
         meta = primeiro.meta or probe_clip(primeiro.arquivo)
         size = (meta.largura - meta.largura % 2, meta.altura - meta.altura % 2)
+    if preview_size is not None:
+        if min(preview_size) < 2 or any(value % 2 for value in preview_size):
+            raise ValueError("tamanho de prévia deve ser par e positivo")
+        size = preview_size
+    if preview_range is not None and render_cache_dir is None:
+        raise ValueError("prévia de trecho exige cache temporário")
     if options.reenquadrar or options.imagens or options.legendas_destaque:
         t0 = time.perf_counter()
         tracks = face_tracks(video_project, on_step)
@@ -490,8 +499,10 @@ def render_project(
                 )
 
         t0 = time.perf_counter()
-        limpos, avisos_audio = audios_limpos(project, options, on_step)
-        if options.limpar_audio:
+        limpos, avisos_audio = (
+            ({}, []) if mute_preview_audio else audios_limpos(project, options, on_step)
+        )
+        if options.limpar_audio and not mute_preview_audio:
             tempos["limpeza do áudio"] = time.perf_counter() - t0
 
         if plano_usado is not None:
@@ -511,7 +522,7 @@ def render_project(
             render_timeline(
                 video_project.timeline,
                 output,
-                size=size if options.reenquadrar else None,
+                size=size if options.reenquadrar or preview_size is not None else None,
                 fps=settings.output_fps,
                 sample_rate=settings.output_sample_rate,
                 progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
@@ -532,7 +543,7 @@ def render_project(
                 project.documento,
                 output,
                 render_cache_dir,
-                size=size if options.reenquadrar else None,
+                size=size if options.reenquadrar or preview_size is not None else None,
                 fps=settings.output_fps,
                 sample_rate=settings.output_sample_rate,
                 progress=lambda feitos, total: on_step("render", feitos / total if total else 1.0),
@@ -544,6 +555,8 @@ def render_project(
                 broll=cutaways,
                 broll_transition=options.broll_transition,
                 ids_alterados=ids_alterados,
+                preview_range=preview_range,
+                mute_audio=mute_preview_audio,
             )
             segmentos_renderizados = incremental.renderizados
             segmentos_reutilizados = incremental.reutilizados

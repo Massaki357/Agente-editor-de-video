@@ -622,7 +622,7 @@ src/editing/
 - [x] Etapa 1: Segmentação do render
 - [x] Etapa 2: Substituição manual de imagens e vídeos
 - [x] Etapa 3: Histórico e desfazer/refazer
-- [ ] Etapa 4: UI de edição pós-render
+- [x] Etapa 4: UI de edição pós-render
 - [ ] Etapa 5: Ferramentas do agente de chat (tool calling)
 - [ ] Etapa 6: Interface de chat
 - [ ] Etapa 7: Testes de integração e robustez
@@ -654,6 +654,14 @@ versão salva. O histórico descarta o ramo de refazer após nova edição, limi
 o número de versões configuravelmente e rejeita trocas quando o plano tem
 alterações pendentes que ainda não estão no vídeo. Testes com imagem e B-roll,
 build da interface e revisão independente aprovaram os critérios; a conferência
+visual com vídeo real está em `testes-pendentes.md`.
+
+Etapa 4 verificada: a aba Edição localiza imagens, B-roll, zooms e destaques
+na linha do tempo. Troca ou remoção gera uma prévia curta, reduzida e sem áudio;
+o vídeo final só muda após confirmação, com versão no histórico. Testes
+sintéticos cobriram os quatro tipos, troca de imagem, remoção de B-roll,
+rejeição de prévia obsoleta e desfazer. A suíte completa, Ruff, doctor, build
+e revisão independente aprovaram os critérios automatizáveis; a conferência
 visual com vídeo real está em `testes-pendentes.md`.
 
 ---

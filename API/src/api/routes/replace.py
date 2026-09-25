@@ -11,9 +11,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from src.api.deps import Jobs, Store, ensure_idle, ensure_project
-from src.api.jobs import Job, JobStatus
-from src.api.render_options import last_render_options
-from src.editing.history import rendered_matches, save_rendered_checkpoint
+from src.api.jobs import Job
+from src.api.render_options import ensure_rendered_checkpoint, last_render_options
 from src.images import timeline_signature
 
 router = APIRouter(prefix="/projects/{pid}/replace", tags=["edição"])
@@ -38,22 +37,7 @@ def _ready(store: Store, jobs: Jobs, pid: str, element_id: str) -> dict:
     plano = store.load_plan(pid)
     if plano is None or plano.assinatura != timeline_signature(project):
         raise HTTPException(409, "o plano mudou; gere o vídeo novamente antes da troca")
-    final = store.saida_dir(pid) / "final.mp4"
-    checkpoint = rendered_matches(store.dir(pid), project, final)
-    if checkpoint is None:
-        # Projetos gerados antes da Etapa 3 não têm checkpoint. O mtime do
-        # project.json detecta edições posteriores; renomear só toca info.json.
-        latest = next((
-            job for job in jobs.list(pid)
-            if job.tipo in {"gerar", "substituir", "desfazer", "refazer"}
-            and job.status == JobStatus.concluido
-            and job.terminado is not None
-        ), None)
-        project_mtime = (store.dir(pid) / "project.json").stat().st_mtime
-        checkpoint = latest is not None and project_mtime <= latest.terminado.timestamp()
-        if checkpoint:
-            save_rendered_checkpoint(store.dir(pid), project, final)
-    if not checkpoint:
+    if not ensure_rendered_checkpoint(store, jobs, pid, project):
         raise HTTPException(409, "há edições pendentes no plano; gere o vídeo antes de substituir")
     if element_id.startswith("img_"):
         exists = any(f"img_{item.id:03d}" == element_id for item in plano.itens)

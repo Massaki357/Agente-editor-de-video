@@ -294,11 +294,40 @@ export interface UsoLLM {
   modelos: string[]
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir' | 'desfazer' | 'refazer'
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir' | 'desfazer' | 'refazer' | 'previsualizar' | 'aplicar_edicao'
 export type Substituicao =
   | { modo: 'busca'; query: string }
   | { modo: 'alternativa'; indice: number }
   | { modo: 'upload'; arquivo: File }
+export type EditorAction =
+  | { action: 'remove' }
+  | { action: 'replace'; mode: 'busca'; query: string }
+  | { action: 'replace'; mode: 'alternativa'; index: number }
+  | { action: 'replace'; mode: 'upload'; file: File }
+
+export interface EditorElement {
+  id: string
+  tipo: 'imagem' | 'broll' | 'zoom' | 'destaque'
+  inicio: number
+  fim: number
+  rotulo: string
+  ativo: boolean
+  editavel: boolean
+}
+
+export interface EditorOut {
+  duration: number
+  elements: EditorElement[]
+}
+
+export interface EditorPreview {
+  token: string
+  preview_url: string
+  inicio: number
+  fim: number
+  elemento: string
+  acao: string
+}
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
 
 export interface HistoryEntry {
@@ -341,6 +370,8 @@ const NOMES_JOB: Record<string, string> = {
   substituir: 'Substituir mídia',
   desfazer: 'Desfazer edição',
   refazer: 'Refazer edição',
+  previsualizar: 'Gerar prévia de edição',
+  aplicar_edicao: 'Aplicar edição',
 }
 
 export function nomeJob(tipo: string): string {
@@ -461,6 +492,18 @@ export const api = {
   getHistory: (id: string) => request<HistoryOut>('GET', `/projects/${enc(id)}/history`),
   undoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/undo`),
   redoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/redo`),
+  getEditor: (id: string) => request<EditorOut>('GET', `/projects/${enc(id)}/editor`),
+  previewEdit: (id: string, elementId: string, action: EditorAction) => {
+    const path = `/projects/${enc(id)}/editor/${enc(elementId)}/preview`
+    if (action.action === 'replace' && action.mode === 'upload') {
+      const form = new FormData()
+      form.append('file', action.file, action.file.name)
+      return request<Job>('POST', `${path}/upload`, form)
+    }
+    return request<Job>('POST', path, action)
+  },
+  applyEdit: (id: string, token: string) =>
+    request<Job>('POST', `/projects/${enc(id)}/editor/previews/${enc(token)}/apply`),
   fileUrl: (id: string, nome: string) => `${BASE}/projects/${enc(id)}/files/${enc(nome)}`,
 
   createJob: (id: string, tipo: JobTipo, opcoes?: PipelineOptions) =>
