@@ -27,6 +27,8 @@ def prepare_preview(plano: PlanoImagens, settings: Settings | None = None) -> Pl
             pagina=prepared.pagina,
             autor=prepared.autor,
         )
+        if prepared.alternativas:
+            item.alternativas = [c.model_dump(mode="json") for c in prepared.alternativas]
     return updated
 
 
@@ -51,6 +53,7 @@ def edit_preview(
             item.query = query
             item.video = None
             item.aprovado = False
+            item.alternativas = []
     if ativo is not None:
         item.ativo = ativo
         if not ativo:

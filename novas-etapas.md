@@ -620,7 +620,7 @@ src/editing/
 
 - [x] Etapa 0: `project.json` como documento único e versionado
 - [x] Etapa 1: Segmentação do render
-- [ ] Etapa 2: Substituição manual de imagens e vídeos
+- [x] Etapa 2: Substituição manual de imagens e vídeos
 - [ ] Etapa 3: Histórico e desfazer/refazer
 - [ ] Etapa 4: UI de edição pós-render
 - [ ] Etapa 5: Ferramentas do agente de chat (tool calling)
@@ -638,6 +638,14 @@ e concatena o vídeo com áudio contínuo. Testes sintéticos compararam quadros
 áudio com um render limpo após troca de imagem, legenda e B-roll com transição;
 elementos inativos não invalidam cache. A segunda geração pela API reutilizou
 todos os segmentos. A revisão independente aprovou os critérios.
+
+Etapa 2 verificada: imagens e B-roll podem ser substituídos por nova busca,
+alternativa salva ou upload. O job `substituir` conserva a timeline, usa as opções
+da última geração e só confirma a mudança quando a nova mídia aparece no vídeo;
+o render incremental reaproveita os outros segmentos. Os testes sintéticos de
+upload e as alternativas sem nova busca passaram, assim como o build da UI e a
+revisão independente. A avaliação visual na interface com mídia real está em
+`testes-pendentes.md`.
 
 ---
 

@@ -66,7 +66,7 @@ class ZoomPlanParams(BaseModel):
 
 
 class Candidato(BaseModel):
-    fonte: Literal["pexels", "pixabay"]
+    fonte: Literal["pexels", "pixabay", "upload"]
     id: str
     url: str  # imagem para baixar (~1000 px)
     miniatura: str
@@ -429,6 +429,11 @@ def _pixabay(query: str, n: int, settings: Settings) -> list[Candidato]:
 
 def download(url: str, settings: Settings | None = None) -> Path:
     """Baixa (uma vez) para `CACHE_DIR/imagens/`."""
+    if not url.startswith("https://"):
+        local = Path(url)
+        if local.is_file():
+            return local
+        raise FileNotFoundError(f"imagem local indisponível: {url}")
     settings = settings or get_settings()
     destino = settings.cache_dir / "imagens" / f"{hashlib.sha1(url.encode()).hexdigest()}.img"
     if destino.exists() and destino.stat().st_size > 0:

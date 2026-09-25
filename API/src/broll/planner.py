@@ -14,7 +14,7 @@ import math
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -67,7 +67,7 @@ class VideoBroll(BaseModel):
     """Clipe escolhido na prévia; reutilizado no render sem nova busca."""
 
     arquivo: Path
-    fonte: Literal["pexels", "pixabay"]
+    fonte: Literal["pexels", "pixabay", "upload"]
     id: str
     pagina: str
     autor: str = ""
@@ -88,6 +88,7 @@ class ItemBroll(BaseModel):
     ativo: bool = True
     aprovado: bool = False
     video: VideoBroll | None = None
+    alternativas: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
     def fim(self) -> float:

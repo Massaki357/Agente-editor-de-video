@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react'
-import { fmtSeg, type BrollEdit, type BrollItemOut } from '../api'
+import { fmtSeg, type BrollEdit, type BrollItemOut, type Substituicao } from '../api'
 import type { EstadoBroll } from '../useBroll'
 import ErrorBox from './ErrorBox'
+import ReplacePanel from './ReplacePanel'
 
 interface Props {
   broll: EstadoBroll
   bloqueado: boolean
+  temVideo: boolean
+  onSubstituir: (id: string, troca: Substituicao) => Promise<void>
 }
 
 /** Revisão dos vídeos de apoio dentro do plano criativo. */
-export default function BrollList({ broll, bloqueado }: Props) {
+export default function BrollList({ broll, bloqueado, temVideo, onSubstituir }: Props) {
   const itens = broll.dados?.itens ?? []
   const aprovados = itens.filter((item) => item.ativo && item.aprovado).length
   const ocupado = bloqueado || broll.salvandoItem !== null || !broll.dados?.valido
@@ -34,6 +37,8 @@ export default function BrollList({ broll, bloqueado }: Props) {
             desabilitado={ocupado}
             salvando={broll.salvandoItem === item.id}
             onEditar={(mudanca) => broll.editar(item, mudanca)}
+            temVideo={temVideo}
+            onSubstituir={onSubstituir}
           />
         ))}
       </div>
@@ -41,11 +46,13 @@ export default function BrollList({ broll, bloqueado }: Props) {
   )
 }
 
-function BrollCard({ item, desabilitado, salvando, onEditar }: {
+function BrollCard({ item, desabilitado, salvando, onEditar, temVideo, onSubstituir }: {
   item: BrollItemOut
   desabilitado: boolean
   salvando: boolean
   onEditar: (mudanca: BrollEdit) => void
+  temVideo: boolean
+  onSubstituir: (id: string, troca: Substituicao) => Promise<void>
 }) {
   const [query, setQuery] = useState(item.query)
   useEffect(() => setQuery(item.query), [item.query])
@@ -56,7 +63,7 @@ function BrollCard({ item, desabilitado, salvando, onEditar }: {
     <article className={`imagem-item broll-item${item.ativo ? '' : ' inativa'}`}>
       <div className="broll-video">
         {item.video_url ? (
-          <video key={`${item.id}-${item.query}`} src={`${item.video_url}?q=${encodeURIComponent(item.query)}`} controls preload="metadata" playsInline />
+          <video key={item.video_url} src={item.video_url} controls preload="metadata" playsInline />
         ) : <span className="suave">vídeo indisponível</span>}
       </div>
       <div className="imagem-corpo">
@@ -82,6 +89,15 @@ function BrollCard({ item, desabilitado, salvando, onEditar }: {
         {item.video_url && item.pagina && (
           <p className="suave">vídeo: <a href={item.pagina} target="_blank" rel="noreferrer">{item.autor || 'autor desconhecido'} ({item.fonte || 'fonte'})</a></p>
         )}
+        {temVideo && <ReplacePanel
+          key={`${item.id}-${item.video_id}-${(item.alternativas ?? []).map((a) => a.id).join('-')}`}
+          elementoId={`broll_${String(item.id).padStart(3, '0')}`}
+          tipo="vídeo"
+          queryAtual={item.query}
+          alternativas={(item.alternativas ?? []).filter((a) => a.id !== item.video_id).map((a) => ({ indice: a.indice, rotulo: `${a.autor || 'autor desconhecido'} (${a.fonte})`, pagina: a.pagina }))}
+          bloqueado={desabilitado}
+          onSubstituir={onSubstituir}
+        />}
       </div>
     </article>
   )

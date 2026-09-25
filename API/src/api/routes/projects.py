@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.api.deps import Jobs, Store, ensure_idle, ensure_project
+from src.api.render_options import last_render_options
 from src.api.schemas import (
     ClipOut,
     ImportFolder,
@@ -92,6 +93,7 @@ def project_out(store: ProjectStore, jobs, pid: str) -> ProjectOut:
     saida = store.dir(pid) / "saida"
     arquivos = sorted(p.name for p in saida.glob("*.mp4")) if saida.exists() else []
     ativo = jobs.active(pid)
+    last_options = last_render_options(project, jobs, pid)
     return ProjectOut(
         **info.model_dump(),
         n_clipes=len(project.timeline.clipes),
@@ -105,6 +107,10 @@ def project_out(store: ProjectStore, jobs, pid: str) -> ProjectOut:
         legendas_continuas=project.legendas_continuas,
         legendas_destaque=project.legendas_destaque,
         estilo_destaque=project.estilo_destaque,
+        pode_substituir_imagens=bool(last_options.get("imagens")),
+        pode_substituir_broll=bool(
+            last_options.get("broll") and last_options.get("reenquadrar")
+        ),
         duracao_total=project.timeline.duracao_total,
         arquivos=arquivos,
         job_ativo=ativo.id if ativo else None,

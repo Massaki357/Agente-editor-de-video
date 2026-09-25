@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from src.api.jobs import JobManager
-from src.api.routes import broll, images, jobs, projects, system
+from src.api.routes import broll, images, jobs, projects, replace, system
 from src.api.store import ProjectStore
 from src.api.tasks import make_runner
 from src.config import REPO_ROOT, get_settings
@@ -55,7 +55,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for router in (system.router, projects.router, images.router, broll.router, jobs.router):
+    for router in (
+        system.router, projects.router, images.router, broll.router, replace.router,
+        jobs.router,
+    ):
         app.include_router(router, prefix="/api")
     montar_frontend(app)
     return app

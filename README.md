@@ -181,8 +181,24 @@ Se a geração anterior usou opções personalizadas, envie as mesmas `opcoes`
 nessa chamada para conservar o plano e aproveitar o cache.
 
 O vídeo final é remontado a partir dos segmentos válidos, com o áudio codificado
-uma vez. A troca de imagens e vídeos pela interface será acrescentada na próxima
-etapa; o envio de IDs já permite usar o motor incremental pela API.
+uma vez. A interface e a API também permitem trocar uma mídia pelo ID.
+
+### Substituir mídia depois de gerar
+
+Na aba **Plano criativo**, abra **substituir imagem no vídeo** ou **substituir
+B-roll** no item desejado. Escolha um resultado da busca original, faça
+uma nova busca ou envie seu arquivo. **Confirmar substituição** inicia um job;
+ao concluir, o player mostra o vídeo remontado. O projeto conserva o ID e o
+intervalo do elemento. Trechos sem mudanças vêm do cache. Imagens aceitam PNG,
+JPEG e WebP (até 20 MB); vídeos aceitam MP4, MOV, MKV e WebM (até 60 MB), com
+duração suficiente para o cutaway. O painel aparece apenas para efeitos que
+estavam ligados na última geração.
+
+Pela API, use `POST /api/projects/<id>/replace/img_003` (ou `broll_001`) com
+`{"modo":"alternativa","indice":1}` ou `{"modo":"busca","query":"..."}`.
+Para upload, use `POST /api/projects/<id>/replace/<elemento>/upload` com o campo
+multipart `file`. Todas as rotas devolvem um job `substituir`, consultável em
+`GET /api/jobs/<id>`.
 
 ## Estabilizando o vídeo
 

@@ -20,7 +20,7 @@ from src.project import Project
 
 log = logging.getLogger(__name__)
 
-TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar")
+TIPOS = ("transcrever", "rosto", "imagens", "broll", "gerar", "substituir")
 VIDEO_FINAL = "final.mp4"
 
 
@@ -40,6 +40,7 @@ def make_runner(store: ProjectStore):
             "imagens": imagens,
             "broll": broll,
             "gerar": gerar,
+            "substituir": substituir,
         }
         tarefa = tarefas.get(job.tipo)
         if tarefa is None:
@@ -221,6 +222,7 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
         render_cache_dir=store.dir(job.projeto_id) / "render_cache",
         ids_alterados=set((job.opcoes or {}).get("ids_alterados", [])),
     )
+    project.opcoes_ultima_geracao = options.model_dump(mode="json")
     store.save(job.projeto_id, project)  # trechos e offsets calculados
     if result.plano is not None:
         store.save_plan(job.projeto_id, result.plano)
@@ -236,4 +238,43 @@ def gerar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
         "duracao_original": round(result.duracao_original, 3),
         "removido_pct": round(result.removido_pct, 1),
         "tempos": {k: round(v, 2) for k, v in result.tempos.items()},
+    }
+
+
+def substituir(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Troca mídia por ID e renderiza só os segmentos afetados, sem refazer cortes."""
+    from src.editing.replace import replace_element
+
+    pid = job.projeto_id
+    args = job.opcoes or {}
+    element_id = str(args["element_id"])
+    project = store.load(pid)
+    plano = store.load_plan(pid)
+    if plano is None or not args.get("render_options"):
+        raise ValueError("gere o vídeo antes de substituir um elemento")
+    options = PipelineOptions.model_validate(args["render_options"])
+    ctx.step("substituição", 0.0)
+    updated = replace_element(
+        plano, element_id, args["modo"], query=args.get("query"),
+        indice=args.get("indice"),
+        upload=Path(args["upload"]) if args.get("upload") else None,
+        pid=pid,
+    )
+    ctx.step("substituição", 1.0)
+    output = store.saida_dir(pid) / VIDEO_FINAL
+    result = pipeline.render_project(
+        project, output, options, ctx.step, updated,
+        render_cache_dir=store.dir(pid) / "render_cache",
+        ids_alterados={element_id}, reuse_timeline=True,
+        required_element_id=element_id,
+    )
+    project.opcoes_ultima_geracao = options.model_dump(mode="json")
+    store.save(pid, project)
+    store.save_plan(pid, updated)
+    return {
+        "video": VIDEO_FINAL,
+        "elemento": element_id,
+        "segmentos_renderizados": result.segmentos_renderizados,
+        "segmentos_reutilizados": result.segmentos_reutilizados,
+        "avisos": list(result.avisos),
     }

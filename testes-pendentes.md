@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Substituição pós-render (25/09/2026)
+
+- ✅ **P5-E2: troca técnica aprovada.** A UI oferece nova busca, alternativa e upload para imagem e B-roll. Testes sintéticos trocaram cada tipo por upload, confirmaram que a nova mídia aparece no intervalo esperado e que os quadros fora dele permanecem iguais. A seleção de alternativa usa candidatos salvos, sem repetir busca. Erros de preparo deixam plano e vídeo anteriores intactos; efeitos desligados bloqueiam a troca. A revisão independente aprovou a etapa. Suíte completa: 560 testes aprovados e 19 de integração não executados; Ruff, build do frontend e doctor passaram (0 faltando).
+- 👀 **P5-C2: conferir a troca na interface com um vídeo real quando puder.** Abra um projeto já gerado com imagens e B-roll ligados. Na aba **Plano criativo**, substitua uma imagem e um cutaway por arquivos seus ou por alternativas; aguarde os jobs e assista ao resultado. Confira a pertinência visual e se voz, legendas e cenas vizinhas continuam iguais. Nenhum arquivo novo em `samples/` é necessário: use um dos projetos que já têm esses efeitos.
+
 ### Render incremental pós-render (24/09/2026)
 
 - ✅ **P5-E1: segmentação e cache aprovados tecnicamente.** Os testes sintéticos compararam quadro a quadro e amostra a amostra o resultado incremental com o render completo equivalente após alterar imagem e B-roll com transição. A troca de modo de legenda reaproveitou os trechos sem texto; elementos inativos não invalidaram cache, e o áudio coincidiu com o render legado. O job da API reutilizou todos os segmentos na segunda geração sem mudanças. Suíte completa: 556 testes aprovados, 19 de integração não executados; após os ajustes da revisão, 39 testes focados passaram. Doctor: 0 faltando. A revisão independente aprovou a etapa. A troca por UI e a avaliação em vídeo real pertencem às etapas seguintes.

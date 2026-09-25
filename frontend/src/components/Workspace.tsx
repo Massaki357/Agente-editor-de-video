@@ -11,6 +11,7 @@ import {
   type PipelineOptions,
   type ProjectOut,
   type ProjectSummary,
+  type Substituicao,
 } from '../api'
 import { usePlano } from '../usePlano'
 import { useBroll } from '../useBroll'
@@ -104,10 +105,10 @@ export default function Workspace({
         if (j && !jobAtivo(j) && !tratados.current.has(j.id)) {
           tratados.current.add(j.id)
           setCancelando((c) => c.filter((id) => id !== j.id))
-          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar') setVersaoPlano((v) => v + 1)
+          if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir') setVersaoPlano((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
           if (j.status === 'concluido' && (j.tipo === 'imagens' || j.tipo === 'broll')) setModo('plano')
-          if (j.status === 'concluido' && j.tipo === 'gerar') setModo('resultado')
+          if (j.status === 'concluido' && (j.tipo === 'gerar' || j.tipo === 'substituir')) setModo('resultado')
           await carregar()
           onAlterado()
         }
@@ -155,6 +156,12 @@ export default function Workspace({
     }
   }
 
+  const substituir = async (elementoId: string, troca: Substituicao) => {
+    const j = await api.replaceElement(projetoId, elementoId, troca)
+    setTodosJobs((js) => [j, ...js])
+    setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
+  }
+
   const cancelar = async (job: Job) => {
     setCancelando((c) => (c.includes(job.id) ? c : [...c, job.id]))
     try {
@@ -185,6 +192,7 @@ export default function Workspace({
   const bloqueado = Boolean(projeto.job_ativo) || idAtivo !== null || ocupado !== null
   const clipe = projeto.clipes.find((c) => c.arquivo === selecionado) ?? null
   const jobGerar = jobs.find((j) => j.tipo === 'gerar' && j.status === 'concluido') ?? null
+  const jobSubstituir = jobs.find((j) => j.tipo === 'substituir' && j.status === 'concluido') ?? null
   // avisos do último job do projeto, até o usuário dispensá-los
   const avisos = jobAtual && avisosOcultos !== jobAtual.id ? avisosDoResultado(jobAtual.resultado) : []
 
@@ -198,9 +206,11 @@ export default function Workspace({
         aba={aba}
         onAba={setAba}
         jobGerar={jobGerar}
+        jobSubstituir={jobSubstituir}
         plano={plano}
         broll={broll}
         bloqueado={bloqueado}
+        onSubstituir={substituir}
       />
 
       <ClipStrip

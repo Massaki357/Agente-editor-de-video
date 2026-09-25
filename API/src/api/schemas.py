@@ -75,6 +75,8 @@ class ProjectOut(ProjectSummary):
     legendas_continuas: bool = True
     legendas_destaque: bool = False
     estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
+    pode_substituir_imagens: bool = False
+    pode_substituir_broll: bool = False
     duracao_total: float
     arquivos: list[str] = Field(description="arquivos gerados em saida/")
     job_ativo: str | None
@@ -156,6 +158,8 @@ class BrollItemOut(BaseModel):
     autor: str | None = None
     pagina: str | None = None
     video_url: str | None = None
+    video_id: str | None = None
+    alternativas: list[dict] = Field(default_factory=list)
 
 
 class BrollPreviewOut(BaseModel):

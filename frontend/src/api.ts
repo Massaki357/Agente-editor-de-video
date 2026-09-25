@@ -147,6 +147,8 @@ export interface ProjectOut extends ProjectSummary {
   legendas_continuas: boolean
   legendas_destaque: boolean
   estilo_destaque: HighlightStyle
+  pode_substituir_imagens: boolean
+  pode_substituir_broll: boolean
 }
 
 export interface BrollItemOut {
@@ -160,7 +162,17 @@ export interface BrollItemOut {
   fonte: string | null
   autor: string | null
   pagina: string | null
+  video_id: string | null
   video_url: string | null
+  alternativas?: BrollAlternativa[]
+}
+
+export interface BrollAlternativa {
+  indice: number
+  id: string
+  fonte: string
+  pagina: string
+  autor: string
 }
 
 export interface BrollPreviewOut {
@@ -219,7 +231,7 @@ export interface ConfigOut {
 
 /** Espelha `Candidato` (API/src/images.py). */
 export interface Candidato {
-  fonte: 'pexels' | 'pixabay'
+  fonte: 'pexels' | 'pixabay' | 'upload'
   id: string
   url: string
   miniatura: string
@@ -282,7 +294,11 @@ export interface UsoLLM {
   modelos: string[]
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar'
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir'
+export type Substituicao =
+  | { modo: 'busca'; query: string }
+  | { modo: 'alternativa'; indice: number }
+  | { modo: 'upload'; arquivo: File }
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
 
 export interface Job {
@@ -308,6 +324,7 @@ const NOMES_JOB: Record<string, string> = {
   imagens: 'Sugerir imagens e zooms',
   broll: 'Preparar B-roll',
   gerar: 'Gerar vídeo',
+  substituir: 'Substituir mídia',
 }
 
 export function nomeJob(tipo: string): string {
@@ -416,6 +433,15 @@ export const api = {
     request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/${itemId}`, mudanca),
   setZoomActive: (id: string, zoomId: number, ativo: boolean) =>
     request<PlanoOut>('PATCH', `/projects/${enc(id)}/imagens/zooms/${zoomId}`, { ativo }),
+  replaceElement: (id: string, elementoId: string, troca: Substituicao) => {
+    const path = `/projects/${enc(id)}/replace/${enc(elementoId)}`
+    if (troca.modo === 'upload') {
+      const form = new FormData()
+      form.append('file', troca.arquivo, troca.arquivo.name)
+      return request<Job>('POST', `${path}/upload`, form)
+    }
+    return request<Job>('POST', path, troca)
+  },
   fileUrl: (id: string, nome: string) => `${BASE}/projects/${enc(id)}/files/${enc(nome)}`,
 
   createJob: (id: string, tipo: JobTipo, opcoes?: PipelineOptions) =>

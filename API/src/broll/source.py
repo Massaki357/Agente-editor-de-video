@@ -24,7 +24,7 @@ import requests
 from pydantic import BaseModel, Field, model_validator
 
 from src.broll.planner import ItemBroll
-from src.cache import cache_path, read_json_cache, write_json_cache
+from src.cache import cache_path, file_hash, read_json_cache, write_json_cache
 from src.clips import ClipProbeError, probe_clip
 from src.config import Settings, get_settings
 
@@ -67,10 +67,11 @@ class PreparedBroll(BaseModel):
     arquivo: Path
     query: str
     duracao: float
-    fonte: Literal["pexels", "pixabay"]
+    fonte: Literal["pexels", "pixabay", "upload"]
     id: str
     pagina: str
     autor: str = ""
+    alternativas: list[VideoCandidate] = Field(default_factory=list)
 
 
 def _key(query: str, duracao: float, params: BrollSourceParams) -> str:
@@ -356,6 +357,7 @@ def prepare_broll(
                     id=candidate.id,
                     pagina=candidate.pagina,
                     autor=candidate.autor,
+                    alternativas=candidates,
                 )
                 write_json_cache(
                     "broll_video", key, prepared.model_dump(mode="json"), settings.cache_dir
@@ -380,6 +382,74 @@ def prepare_broll(
                     exc,
                 )
     return None
+
+
+def prepare_candidate(
+    candidate: VideoCandidate,
+    query: str,
+    duracao: float,
+    *,
+    settings: Settings | None = None,
+    params: BrollSourceParams | None = None,
+) -> PreparedBroll:
+    """Prepara uma alternativa conhecida sem repetir a busca do provedor."""
+    settings = settings or get_settings()
+    params = params or BrollSourceParams(
+        width=settings.output_width, height=settings.output_height, fps=settings.output_fps
+    )
+    if not 0 < duracao <= params.max_duration or candidate.duracao + 0.05 < duracao:
+        raise ValueError("vídeo alternativo curto demais para o cutaway")
+    key = hashlib.sha256(
+        json.dumps([_key(query, duracao, params), candidate.fonte, candidate.id]).encode()
+    ).hexdigest()[:32]
+    output = cache_path("broll_video", key, ".mp4", settings.cache_dir)
+    if not output.is_file():
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="broll_alternativo_", dir=output.parent) as temp:
+            raw = Path(temp) / "origem.mp4"
+            normalized = Path(temp) / "pronto.mp4"
+            _download(candidate, raw, params.max_download_bytes)
+            _normalize(raw, normalized, duracao, params)
+            normalized.replace(output)
+    return PreparedBroll(
+        arquivo=output, query=query, duracao=duracao, fonte=candidate.fonte,
+        id=candidate.id, pagina=candidate.pagina, autor=candidate.autor,
+    )
+
+
+def prepare_uploaded_broll(
+    source: Path,
+    duracao: float,
+    *,
+    settings: Settings | None = None,
+    params: BrollSourceParams | None = None,
+) -> PreparedBroll:
+    """Normaliza vídeo enviado pelo usuário e o guarda pelo conteúdo."""
+    settings = settings or get_settings()
+    params = params or BrollSourceParams(
+        width=settings.output_width, height=settings.output_height, fps=settings.output_fps
+    )
+    if not 0 < duracao <= params.max_duration:
+        raise ValueError("duração inválida para B-roll")
+    meta = probe_clip(source)
+    if meta.duracao + 0.05 < duracao:
+        raise ValueError("vídeo enviado é curto demais para o cutaway")
+    ident = file_hash(source)
+    key = hashlib.sha256(
+        json.dumps(["upload", ident, round(duracao * params.fps), params.width,
+                    params.height, params.fps]).encode()
+    ).hexdigest()[:32]
+    output = cache_path("broll_video", key, ".mp4", settings.cache_dir)
+    if not output.is_file():
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="broll_upload_", dir=output.parent) as temp:
+            normalized = Path(temp) / "pronto.mp4"
+            _normalize(source, normalized, duracao, params)
+            normalized.replace(output)
+    return PreparedBroll(
+        arquivo=output, query=source.stem, duracao=duracao, fonte="upload",
+        id=ident[:16], pagina="", autor=source.name,
+    )
 
 
 def prepare_item(

@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type Job, type ProjectOut } from '../api'
+import { api, fmtNum, fmtSeg, numeroDoResultado, type ClipOut, type Job, type ProjectOut, type Substituicao } from '../api'
 import type { EstadoPlano } from '../usePlano'
 import type { EstadoBroll } from '../useBroll'
 import ClipDetails, { type Aba } from './ClipDetails'
@@ -17,13 +17,15 @@ interface Props {
   onAba: (aba: Aba) => void
   /** último job 'gerar' concluído: dá o resumo do vídeo final */
   jobGerar: Job | null
+  jobSubstituir: Job | null
   plano: EstadoPlano
   broll: EstadoBroll
   bloqueado: boolean
+  onSubstituir: (id: string, troca: Substituicao) => Promise<void>
 }
 
 /** Área principal: resultado, clipe selecionado ou plano criativo. */
-export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, plano, broll, bloqueado }: Props) {
+export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, jobSubstituir, plano, broll, bloqueado, onSubstituir }: Props) {
   const temPlano = plano.dados !== null || broll.dados !== null
   // só mostra as abas que fazem sentido agora
   const abas: { id: ModoPalco; rotulo: string }[] = [
@@ -57,7 +59,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
       </div>
 
       <div className="palco-corpo" id="palco-corpo" role="tabpanel" aria-labelledby={`aba-${atual}`}>
-        {atual === 'resultado' && <Resultado projeto={projeto} jobGerar={jobGerar} />}
+        {atual === 'resultado' && <Resultado projeto={projeto} jobGerar={jobGerar} jobSubstituir={jobSubstituir} />}
         {atual === 'clipe' && clipe && (
           <>
             <div
@@ -94,7 +96,13 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
             </div>
           </>
         )}
-        {atual === 'plano' && <ImagePlan plano={plano} broll={broll} bloqueado={bloqueado} />}
+        {atual === 'plano' && <ImagePlan
+          plano={plano} broll={broll} bloqueado={bloqueado}
+          temVideo={Boolean(projeto.video_final_url)}
+          imagensHabilitadas={projeto.pode_substituir_imagens}
+          brollHabilitado={projeto.pode_substituir_broll}
+          onSubstituir={onSubstituir}
+        />}
       </div>
     </section>
   )
@@ -145,8 +153,10 @@ function navegarAbas(ev: KeyboardEvent<HTMLDivElement>) {
 }
 
 /** Player do vídeo final com o resumo do último render. */
-function Resultado({ projeto, jobGerar }: { projeto: ProjectOut; jobGerar: Job | null }) {
-  const url = projeto.video_final_url
+function Resultado({ projeto, jobGerar, jobSubstituir }: { projeto: ProjectOut; jobGerar: Job | null; jobSubstituir: Job | null }) {
+  const original = projeto.video_final_url
+  const versao = [jobGerar, jobSubstituir].filter((j): j is Job => j !== null).map((j) => j.terminado ?? j.criado).sort().at(-1)
+  const url = original ? `${original}${original.includes('?') ? '&' : '?'}v=${encodeURIComponent(versao ?? projeto.atualizado)}` : null
   if (!url) {
     return (
       <div className="vazio">
@@ -167,6 +177,9 @@ function Resultado({ projeto, jobGerar }: { projeto: ProjectOut; jobGerar: Job |
   return (
     <div className="resultado">
       <video key={url} src={url} controls preload="metadata" className="player vertical" />
+      {jobSubstituir && (!jobGerar || jobSubstituir.criado > jobGerar.criado) && (
+        <p className="suave" role="status">Substituição concluída. O vídeo final foi atualizado.</p>
+      )}
       <div className="linha entre">
         <p className="suave numeros">
           {fmtSeg(duracao ?? projeto.duracao_total)}

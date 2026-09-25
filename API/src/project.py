@@ -8,7 +8,7 @@ mantidas dos clipes anteriores. Imagens e zooms estão em t_out.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -165,6 +165,7 @@ class Project(_Modelo):
     legendas_continuas: bool = True
     legendas_destaque: bool = False
     estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
+    opcoes_ultima_geracao: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _legendas_exclusivas(self) -> Project:

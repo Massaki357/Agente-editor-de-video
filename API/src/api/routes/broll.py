@@ -39,9 +39,21 @@ def _out(store, pid, plan) -> BrollPreviewOut:
                 fonte=video.fonte if video else None,
                 autor=video.autor if video else None,
                 pagina=video.pagina if video else None,
+                video_id=video.id if video else None,
                 video_url=(
-                    f"/api/projects/{pid}/broll/{item.id}/video" if video and valid else None
+                    f"/api/projects/{pid}/broll/{item.id}/video?v={video.id}"
+                    if video and valid else None
                 ),
+                alternativas=[
+                    {
+                        "indice": indice,
+                        "id": candidato.get("id", ""),
+                        "fonte": candidato.get("fonte", ""),
+                        "pagina": candidato.get("pagina", ""),
+                        "autor": candidato.get("autor", ""),
+                    }
+                    for indice, candidato in enumerate(item.alternativas)
+                ],
             )
         )
     return BrollPreviewOut(valido=valid, itens=items)

@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react'
-import { fmtSeg, type ImagemEdit, type ItemImagem, type ItemZoom } from '../api'
+import { fmtSeg, type ImagemEdit, type ItemImagem, type ItemZoom, type Substituicao } from '../api'
 import type { EstadoPlano } from '../usePlano'
 import type { EstadoBroll } from '../useBroll'
 import BrollList from './BrollList'
 import ErrorBox from './ErrorBox'
+import ReplacePanel from './ReplacePanel'
 
 interface Props {
   plano: EstadoPlano
   broll: EstadoBroll
   /** job ativo ou alteração em andamento: trava as edições */
   bloqueado: boolean
+  temVideo: boolean
+  imagensHabilitadas: boolean
+  brollHabilitado: boolean
+  onSubstituir: (id: string, troca: Substituicao) => Promise<void>
 }
 
 /** Palco "Plano criativo": imagens sugeridas pelo LLM e zooms no rosto. */
-export default function ImagePlan({ plano, broll, bloqueado }: Props) {
+export default function ImagePlan({ plano, broll, bloqueado, temVideo, imagensHabilitadas, brollHabilitado, onSubstituir }: Props) {
   const itens = plano.dados?.plano.itens ?? []
   const zooms = plano.dados?.plano.zooms ?? []
   const ativas = itens.filter((i) => i.ativa && i.candidatos.length > 0).length
@@ -24,7 +29,7 @@ export default function ImagePlan({ plano, broll, bloqueado }: Props) {
     <div className="plano">
       <div className="linha entre">
         <p className="suave">
-          Trocar fotos ou ligar/desligar zooms aqui não chama o LLM de novo; depois clique em Gerar vídeo.
+          Ajustes da prévia entram no próximo render. Para trocar uma imagem ou vídeo no resultado atual, use "substituir" no item.
         </p>
         <button type="button" className="pequeno" onClick={plano.recarregar} disabled={plano.carregando}>
           recarregar
@@ -59,6 +64,8 @@ export default function ImagePlan({ plano, broll, bloqueado }: Props) {
                 desabilitado={ocupado}
                 salvando={plano.salvandoItem === item.id}
                 onEditar={(m) => plano.editar(item, m)}
+                temVideo={temVideo && imagensHabilitadas}
+                onSubstituir={onSubstituir}
               />
             ))}
           </div>
@@ -72,7 +79,7 @@ export default function ImagePlan({ plano, broll, bloqueado }: Props) {
           />
         </>
       )}
-      <BrollList broll={broll} bloqueado={bloqueado} />
+      <BrollList broll={broll} bloqueado={bloqueado} temVideo={temVideo && brollHabilitado} onSubstituir={onSubstituir} />
     </div>
   )
 }
@@ -124,9 +131,11 @@ interface ItemProps {
   desabilitado: boolean
   salvando: boolean
   onEditar: (mudanca: ImagemEdit) => void
+  temVideo: boolean
+  onSubstituir: (id: string, troca: Substituicao) => Promise<void>
 }
 
-function ItemCartao({ item, desabilitado, salvando, onEditar }: ItemProps) {
+function ItemCartao({ item, desabilitado, salvando, onEditar, temVideo, onSubstituir }: ItemProps) {
   const [query, setQuery] = useState(item.query)
   // a query salva pode mudar (nova busca ou plano recarregado)
   useEffect(() => setQuery(item.query), [item.query])
@@ -208,6 +217,15 @@ function ItemCartao({ item, desabilitado, salvando, onEditar }: ItemProps) {
             </a>
           </p>
         )}
+        {temVideo && <ReplacePanel
+          key={`${item.id}-${item.escolhida}-${item.candidatos.map((c) => c.id).join('-')}`}
+          elementoId={`img_${String(item.id).padStart(3, '0')}`}
+          tipo="imagem"
+          queryAtual={item.query}
+          alternativas={item.candidatos.flatMap((c, indice) => indice === item.escolhida ? [] : [{ indice, rotulo: `${c.autor || 'autor desconhecido'} (${c.fonte})`, miniatura: c.miniatura, pagina: c.pagina || c.url }])}
+          bloqueado={desabilitado}
+          onSubstituir={onSubstituir}
+        />}
       </div>
     </div>
   )

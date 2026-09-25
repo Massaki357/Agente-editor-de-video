@@ -1028,9 +1028,59 @@ pre {
 .broll-item .linha {
   flex-wrap: wrap;
 }
-.broll-item input:not([type='checkbox']) {
+.broll-item > .imagem-corpo > form.linha input {
   flex: 1;
   min-width: 140px;
+}
+.troca-midia {
+  border-top: 1px solid var(--borda);
+  padding-top: var(--e2);
+}
+.troca-midia form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--e2);
+  padding-top: var(--e2);
+}
+.troca-midia label {
+  cursor: pointer;
+}
+.troca-midia .linha label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+}
+.troca-alternativas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  width: 100%;
+  max-height: 230px;
+  overflow: auto;
+}
+.troca-alternativa {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e1);
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+}
+.troca-alternativa img {
+  width: 60px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: var(--e1);
+}
+.troca-campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  width: 100%;
+}
+.troca-campo input {
+  max-width: 100%;
 }
 .zooms {
   list-style: none;

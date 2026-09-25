@@ -317,6 +317,8 @@ def render_project(
     plano: PlanoImagens | None = None,
     render_cache_dir: Path | None = None,
     ids_alterados: set[str] | None = None,
+    reuse_timeline: bool = False,
+    required_element_id: str | None = None,
 ) -> PipelineResult:
     """Aplica os cortes no projeto (altera os trechos) e renderiza o vídeo final.
 
@@ -333,7 +335,8 @@ def render_project(
     tempos: dict[str, float] = {}
 
     t0 = time.perf_counter()
-    apply_project_cuts(project, options, on_step)
+    if not reuse_timeline:
+        apply_project_cuts(project, options, on_step)
     tempos["transcrição + cortes"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
@@ -461,6 +464,30 @@ def render_project(
                 tempos["B-roll"] = time.perf_counter() - t0
             else:
                 log.warning("B-roll exige saída vertical reenquadrada; mantendo a câmera.")
+
+        if required_element_id is not None:
+            if required_element_id.startswith("img_"):
+                visible = any(
+                    f"img_{ov.item_id:03d}" == required_element_id for ov in overlays
+                )
+            elif required_element_id.startswith("broll_") and plano_usado is not None:
+                selected = next(
+                    (item for item in plano_usado.broll
+                     if f"broll_{item.id:03d}" == required_element_id), None
+                )
+                visible = selected is not None and any(
+                    c.clipe == selected.clipe
+                    and abs(c.inicio - selected.inicio) < 1e-6
+                    and abs(c.fim - selected.fim) < 1e-6
+                    for c in cutaways
+                )
+            else:
+                visible = False
+            if not visible:
+                raise ValueError(
+                    f"{required_element_id}: mídia não entrou no vídeo; "
+                    "confira o arquivo, os efeitos ativos e os conflitos do plano"
+                )
 
         t0 = time.perf_counter()
         limpos, avisos_audio = audios_limpos(project, options, on_step)
