@@ -132,17 +132,25 @@ def test_broll_duration_must_end_at_transcribed_word_boundary(tmp_path):
         execute_tool(session, "ajustar_duracao", {
             "id": "broll_001", "nova_duracao": 2.1,
         })
-    session.words = [
+    words = [
         WordTiming(0, 0, 12, 12.5, "uma"),
         WordTiming(1, 0, 12.5, 13, "frase"),
         WordTiming(2, 0, 13, 14, "mais"),
         WordTiming(3, 0, 14, 15, "completa"),
         WordTiming(4, 0, 15, 16, "fora"),
     ]
+    loads = []
+
+    def load_words():
+        loads.append(True)
+        return words
+
+    session.word_loader = load_words
     with pytest.raises(ValueError, match="fim de uma palavra"):
         execute_tool(session, "ajustar_duracao", {
             "id": "broll_001", "nova_duracao": 2.1,
         })
+    assert loads == [True]
     with pytest.raises(ValueError, match="frase original"):
         execute_tool(session, "ajustar_duracao", {
             "id": "broll_001", "nova_duracao": 4,
@@ -150,6 +158,7 @@ def test_broll_duration_must_end_at_transcribed_word_boundary(tmp_path):
     execute_tool(session, "ajustar_duracao", {
         "id": "broll_001", "nova_duracao": 1.97,
     })
+    assert loads == [True]
     assert session.plan.broll[0].fim == 14
     assert session.plan.broll[0].trecho_fim_palavra == 2
     assert session.plan.broll[0].texto == "uma frase mais"

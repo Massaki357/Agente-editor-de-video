@@ -294,7 +294,7 @@ export interface UsoLLM {
   modelos: string[]
 }
 
-export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir' | 'desfazer' | 'refazer' | 'previsualizar' | 'aplicar_edicao'
+export type JobTipo = 'transcrever' | 'rosto' | 'imagens' | 'broll' | 'gerar' | 'substituir' | 'desfazer' | 'refazer' | 'previsualizar' | 'aplicar_edicao' | 'conversar'
 export type Substituicao =
   | { modo: 'busca'; query: string }
   | { modo: 'alternativa'; indice: number }
@@ -327,6 +327,25 @@ export interface EditorPreview {
   fim: number
   elemento: string
   acao: string
+}
+
+export interface ChatAction {
+  ferramenta: string
+  id: string | null
+  tipo: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+  actions?: ChatAction[]
+  preview?: EditorPreview | null
+  applied?: boolean
+}
+
+export interface ChatOut {
+  messages: ChatMessage[]
+  pending_token: string | null
 }
 export type JobStatus = 'pendente' | 'rodando' | 'concluido' | 'erro' | 'cancelado'
 
@@ -493,6 +512,9 @@ export const api = {
   undoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/undo`),
   redoHistory: (id: string) => request<Job>('POST', `/projects/${enc(id)}/history/redo`),
   getEditor: (id: string) => request<EditorOut>('GET', `/projects/${enc(id)}/editor`),
+  getChat: (id: string) => request<ChatOut>('GET', `/projects/${enc(id)}/chat`),
+  sendChat: (id: string, message: string) =>
+    request<Job>('POST', `/projects/${enc(id)}/chat`, { message }),
   previewEdit: (id: string, elementId: string, action: EditorAction) => {
     const path = `/projects/${enc(id)}/editor/${enc(elementId)}/preview`
     if (action.action === 'replace' && action.mode === 'upload') {

@@ -95,6 +95,7 @@ class EditSession:
     options: PipelineOptions
     words: list[WordTiming] = field(default_factory=list)
     changes: list[dict[str, Any]] = field(default_factory=list)
+    word_loader: Callable[[], list[WordTiming]] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.project = self.project.model_copy(deep=True)
@@ -110,12 +111,33 @@ class EditSession:
         transcriber: Callable[[Path], object],
     ) -> EditSession:
         """Prepara tempos finais das palavras no worker antes de editar B-roll."""
-        words = [WordTiming(
+        return cls(project, plan, options, words=cls._transcription_words(project, transcriber))
+
+    @classmethod
+    def with_lazy_transcription(
+        cls, project: Project, plan: PlanoImagens, options: PipelineOptions,
+        transcriber: Callable[[Path], object],
+    ) -> EditSession:
+        """Carrega palavras apenas se uma ação precisar alterar um B-roll."""
+        return cls(
+            project, plan, options,
+            word_loader=lambda: cls._transcription_words(project, transcriber),
+        )
+
+    @staticmethod
+    def _transcription_words(
+        project: Project, transcriber: Callable[[Path], object],
+    ) -> list[WordTiming]:
+        return [WordTiming(
             indice=value.indice, clipe=value.clipe,
             inicio=value.palavra.inicio, fim=value.palavra.fim,
             texto=value.palavra.texto,
         ) for value in global_words(project, transcriber)]
-        return cls(project, plan, options, words=words)
+
+    def ensure_words(self) -> None:
+        if self.word_loader is not None:
+            self.words = self.word_loader()
+            self.word_loader = None
 
 
 def _find(plan: PlanoImagens, element_id: str) -> tuple[VisualType, Any]:
@@ -267,6 +289,7 @@ def execute_tool(session: EditSession, name: str, arguments: dict[str, Any]) -> 
                 target_end = selected.inicio + args.nova_duracao
                 if target_end > selected.fim + 1e-6:
                     raise ValueError("B-roll não pode passar do fim da frase original")
+                session.ensure_words()
                 relevant = {
                     word.indice: word for word in session.words
                     if word.clipe == selected.clipe and

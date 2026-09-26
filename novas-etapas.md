@@ -624,7 +624,7 @@ src/editing/
 - [x] Etapa 3: Histórico e desfazer/refazer
 - [x] Etapa 4: UI de edição pós-render
 - [x] Etapa 5: Ferramentas do agente de chat (tool calling)
-- [ ] Etapa 6: Interface de chat
+- [x] Etapa 6: Interface de chat
 - [ ] Etapa 7: Testes de integração e robustez
 
 Etapa 0 verificada: IDs estáveis no `project.json` v2, plano criativo lido do
@@ -672,6 +672,18 @@ com o fim ajustado exatamente à transcrição. Testes com modelo falso cobriram
 listagem, troca de imagem, validação de duração e retorno do resultado ao LLM;
 suíte completa, Ruff, doctor e revisão independente aprovaram a etapa. A
 conferência com LLM real está em `testes-pendentes.md` para a Etapa 6.
+
+Etapa 6 verificada: a aba Edição mostra a conversa e as ferramentas com IDs ao
+lado da linha do tempo. O job do chat trabalha sobre um rascunho, renderiza
+automaticamente a prévia curta do trecho e só aplica a mudança ao vídeo final
+após confirmação; o histórico registra a edição. Pedidos ambíguos pedem mais
+detalhes e pedidos de replanejamento indicam os controles corretos. Testes
+sintéticos de ponta a ponta cobriram troca de imagem, remoção de zoom,
+invariância do vídeo antes da confirmação e respostas sem edição. A suíte
+completa passou com 581 testes (19 integrações não executadas); os 11 testes
+focados passaram após o último ajuste. Ruff, doctor, build do frontend e
+revisão independente aprovaram. A conferência visual e com LLM real consta em
+`testes-pendentes.md`.
 
 ---
 

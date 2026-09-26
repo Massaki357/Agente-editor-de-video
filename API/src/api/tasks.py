@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 TIPOS = (
     "transcrever", "rosto", "imagens", "broll", "gerar", "substituir",
-    "desfazer", "refazer", "previsualizar", "aplicar_edicao",
+    "desfazer", "refazer", "previsualizar", "aplicar_edicao", "conversar",
 )
 VIDEO_FINAL = "final.mp4"
 
@@ -50,6 +50,7 @@ def make_runner(store: ProjectStore):
             "refazer": navegar_historico,
             "previsualizar": previsualizar,
             "aplicar_edicao": aplicar_edicao,
+            "conversar": conversar,
         }
         tarefa = tarefas.get(job.tipo)
         if tarefa is None:
@@ -377,20 +378,8 @@ def navegar_historico(store: ProjectStore, job: Job, ctx: JobContext) -> dict[st
 
 def previsualizar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     """Prepara mudança sem publicá-la e renderiza somente seu trecho em 360×640."""
-    import shutil
-
-    from src.config import get_settings
-    from src.editing.history import rendered_matches, video_sha256
-    from src.editing.preview import (
-        PreviewProposal,
-        clean_previews,
-        document_sha256,
-        limit_plan,
-        preview_dir,
-        preview_window,
-        remove_element,
-        save_proposal,
-    )
+    from src.editing.history import rendered_matches
+    from src.editing.preview import remove_element
     from src.editing.replace import replace_element
 
     pid = job.projeto_id
@@ -416,9 +405,41 @@ def previsualizar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, A
     if updated == plan:
         raise ValueError("a edição não alterou o elemento")
     options = PipelineOptions.model_validate(args["render_options"])
+    return _render_editor_preview(
+        store, project, updated, options, element_id, action, args["token"], ctx
+    )
+
+
+def _render_editor_preview(
+    store: ProjectStore,
+    project: Project,
+    updated: PlanoImagens,
+    options: PipelineOptions,
+    element_id: str,
+    action: str,
+    token: str,
+    ctx: JobContext,
+) -> dict[str, Any]:
+    """Prévia comum à edição manual e à ação aprovada pelo agente."""
+    import shutil
+
+    from src.config import get_settings
+    from src.editing.history import video_sha256
+    from src.editing.preview import (
+        PreviewProposal,
+        clean_previews,
+        document_sha256,
+        limit_plan,
+        preview_dir,
+        preview_window,
+        save_proposal,
+    )
+
+    pid = ctx.job.projeto_id
+    project_dir = store.dir(pid)
+    final = store.saida_dir(pid) / VIDEO_FINAL
     window = preview_window(updated, element_id, project.timeline.duracao_total)
     preview_plan = limit_plan(updated, window)
-    token = args["token"]
     folder = preview_dir(project_dir, token)
     folder.mkdir(parents=True, exist_ok=True)
     try:
@@ -429,7 +450,9 @@ def previsualizar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, A
             project.model_copy(deep=True), folder / "preview.mp4", options,
             ctx.step, preview_plan, render_cache_dir=folder / "cache",
             ids_alterados={element_id}, reuse_timeline=True,
-            required_element_id=element_id if action == "replace" else None,
+            required_element_id=(
+                element_id if _visible_replacement(updated, element_id, action) else None
+            ),
             preview_size=(width, height), preview_range=window,
             mute_preview_audio=True,
         )
@@ -456,11 +479,82 @@ def previsualizar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, A
     }
 
 
+def _visible_replacement(plan: PlanoImagens, element_id: str, action: str) -> bool:
+    if action == "remove":
+        return False
+    if element_id.startswith("img_"):
+        return any(f"img_{item.id:03d}" == element_id and item.ativa for item in plan.itens)
+    if element_id.startswith("broll_"):
+        return any(
+            f"broll_{item.id:03d}" == element_id and item.ativo
+            and item.aprovado and item.video is not None
+            for item in plan.broll
+        )
+    return False
+
+
+def conversar(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
+    """Executa o agente num rascunho e prepara a prévia da ação aceita."""
+    import shutil
+    from uuid import uuid4
+
+    from src.editing.chat.agent import run_chat
+    from src.editing.chat.history import ChatMessage, load_chat, save_chat
+    from src.editing.chat.tools import EditSession
+    from src.editing.history import rendered_matches
+    from src.editing.preview import document_sha256, preview_dir
+
+    pid = job.projeto_id
+    project_dir = store.dir(pid)
+    project = store.load(pid)
+    plan = store.load_plan(pid)
+    final = store.saida_dir(pid) / VIDEO_FINAL
+    if plan is None or not rendered_matches(project_dir, project, final):
+        raise ValueError("o projeto mudou desde a solicitação do chat")
+    options = PipelineOptions.model_validate((job.opcoes or {})["render_options"])
+    request = str((job.opcoes or {})["message"])
+    state = load_chat(project_dir)
+    base_hash = document_sha256(project)
+    conversation = state.conversation if state.document_sha256 == base_hash else []
+    ctx.step("chat", 0.0)
+    session = EditSession.with_lazy_transcription(
+        project, plan, options,
+        transcriber=lambda path: pipeline.transcribe_clip(path),
+    )
+    result = run_chat(session, request, conversation=conversation, max_actions=1)
+    ctx.step("chat", 1.0)
+    preview = None
+    if result.acoes:
+        element_id = result.acoes[0]["id"]
+        token = uuid4().hex
+        ctx.step("prévia", 0.0)
+        preview = _render_editor_preview(
+            store, project, session.plan, options, element_id, "chat", token, ctx
+        )
+    old_token = state.pending_token
+    state.messages.append(ChatMessage(role="user", text=request))
+    answer = result.resposta
+    if preview is not None:
+        answer = (answer + "\n\nConfira a prévia e confirme para alterar o vídeo final.").strip()
+    state.messages.append(ChatMessage(
+        role="assistant", text=answer, actions=result.acoes, preview=preview,
+    ))
+    state.conversation = result.conversa
+    state.document_sha256 = base_hash
+    if preview is not None:
+        state.pending_token = preview["token"]
+    save_chat(project_dir, state)
+    if preview is not None and old_token and old_token != preview["token"]:
+        shutil.rmtree(preview_dir(project_dir, old_token), ignore_errors=True)
+    return {"resposta": answer, "acoes": result.acoes, "preview": preview}
+
+
 def aplicar_edicao(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, Any]:
     """Aplica proposta aprovada, renderiza incrementalmente e registra histórico."""
     import shutil
 
     from src.config import get_settings
+    from src.editing.chat.history import mark_applied
     from src.editing.history import (
         record_edit,
         rendered_matches,
@@ -492,7 +586,9 @@ def aplicar_edicao(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, 
             proposal.plan, render_cache_dir=project_dir / "render_cache",
             ids_alterados={proposal.element_id}, reuse_timeline=True,
             required_element_id=(
-                proposal.element_id if proposal.action == "replace" else None
+                proposal.element_id
+                if _visible_replacement(proposal.plan, proposal.element_id, proposal.action)
+                else None
             ),
         )
         ctx.step("aplicação", 1.0)
@@ -511,6 +607,8 @@ def aplicar_edicao(store: ProjectStore, job: Job, ctx: JobContext) -> dict[str, 
         before_video_hash=before_hash, after_video_hash=after_hash,
     )
     save_rendered_checkpoint(project_dir, store.load(pid), final)
+    if proposal.action == "chat":
+        mark_applied(project_dir, token, document_sha256(store.load(pid)))
     shutil.rmtree(preview_dir(project_dir, token), ignore_errors=True)
     return {
         "video": VIDEO_FINAL, "elemento": proposal.element_id, "acao": proposal.action,

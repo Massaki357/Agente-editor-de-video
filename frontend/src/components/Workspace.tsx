@@ -116,7 +116,7 @@ export default function Workspace({
           tratados.current.add(j.id)
           setCancelando((c) => c.filter((id) => id !== j.id))
           if (j.tipo === 'imagens' || j.tipo === 'broll' || j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer' || j.tipo === 'aplicar_edicao') setVersaoPlano((v) => v + 1)
-          if (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer' || j.tipo === 'aplicar_edicao') setVersaoEditor((v) => v + 1)
+          if (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer' || j.tipo === 'aplicar_edicao' || j.tipo === 'conversar') setVersaoEditor((v) => v + 1)
           // leva o palco para o que acabou de ficar pronto
           if (j.status === 'concluido' && (j.tipo === 'imagens' || j.tipo === 'broll')) setModo('plano')
           if (j.status === 'concluido' && (j.tipo === 'gerar' || j.tipo === 'substituir' || j.tipo === 'desfazer' || j.tipo === 'refazer')) setModo('resultado')
@@ -182,6 +182,13 @@ export default function Workspace({
 
   const aplicarEdicao = async (token: string): Promise<Job> => {
     const j = await api.applyEdit(projetoId, token)
+    setTodosJobs((js) => [j, ...js])
+    setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
+    return j
+  }
+
+  const enviarChat = async (message: string): Promise<Job> => {
+    const j = await api.sendChat(projetoId, message)
     setTodosJobs((js) => [j, ...js])
     setProjeto((p) => (p ? { ...p, job_ativo: j.id } : p))
     return j
@@ -262,6 +269,7 @@ export default function Workspace({
         versaoEditor={versaoEditor}
         onPreview={iniciarPreview}
         onAplicar={aplicarEdicao}
+        onChat={enviarChat}
       />
 
       <ClipStrip

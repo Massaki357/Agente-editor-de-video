@@ -14,6 +14,7 @@ from src.api.deps import Jobs, Store, ensure_idle, ensure_project
 from src.api.jobs import Job
 from src.api.render_options import ensure_rendered_checkpoint, last_render_options
 from src.api.routes.replace import IMAGE_SUFFIXES, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, VIDEO_SUFFIXES
+from src.editing.chat.history import load_chat
 from src.editing.history import video_sha256
 from src.editing.preview import (
     EditorOut,
@@ -159,6 +160,8 @@ def apply_preview(pid: str, token: str, store: Store, jobs: Jobs) -> Job:
             proposal = load_proposal(store.dir(pid), token)
         except (OSError, ValueError):
             raise HTTPException(404, "prévia não encontrada") from None
+        if proposal.action == "chat" and load_chat(store.dir(pid)).pending_token != token:
+            raise HTTPException(409, "o chat já propôs outra prévia; confirme a mais recente")
         project, _plan, _options, _item = _ready(pid, proposal.element_id, store, jobs)
         current_hash = video_sha256(store.dir(pid) / "saida" / "final.mp4")
         if current_hash != proposal.base_sha256:

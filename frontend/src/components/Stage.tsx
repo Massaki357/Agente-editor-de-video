@@ -34,10 +34,11 @@ interface Props {
   versaoEditor: number
   onPreview: (id: string, acao: EditorAction) => Promise<Job>
   onAplicar: (token: string) => Promise<Job>
+  onChat: (message: string) => Promise<Job>
 }
 
 /** Área principal: resultado, clipe selecionado ou plano criativo. */
-export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, jobSubstituir, jobHistorico, jobEdicao, historico, erroHistorico, plano, broll, bloqueado, onSubstituir, onDesfazer, onRefazer, jobs, versaoEditor, onPreview, onAplicar }: Props) {
+export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGerar, jobSubstituir, jobHistorico, jobEdicao, historico, erroHistorico, plano, broll, bloqueado, onSubstituir, onDesfazer, onRefazer, jobs, versaoEditor, onPreview, onAplicar, onChat }: Props) {
   const temPlano = plano.dados !== null || broll.dados !== null
   // só mostra as abas que fazem sentido agora
   const abas: { id: ModoPalco; rotulo: string }[] = [
@@ -119,7 +120,7 @@ export default function Stage({ projeto, modo, onModo, clipe, aba, onAba, jobGer
         {atual === 'edicao' && <EditorView
           projetoId={projeto.id} versao={versaoEditor} jobs={jobs} bloqueado={bloqueado}
           plano={plano.dados} broll={broll.dados}
-          onPreview={onPreview} onApply={onAplicar}
+          onPreview={onPreview} onApply={onAplicar} onChat={onChat}
         />}
       </div>
     </section>

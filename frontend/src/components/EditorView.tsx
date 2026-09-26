@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   api, fmtSeg, mensagemErro,
   type BrollPreviewOut, type EditorAction, type EditorElement, type EditorOut,
   type EditorPreview, type Job, type PlanoOut,
 } from '../api'
 import ErrorBox from './ErrorBox'
+import ChatPanel from './ChatPanel'
 
 interface Props {
   projetoId: string
@@ -15,6 +16,7 @@ interface Props {
   broll: BrollPreviewOut | null
   onPreview: (elementoId: string, acao: EditorAction) => Promise<Job>
   onApply: (token: string) => Promise<Job>
+  onChat: (message: string) => Promise<Job>
 }
 
 type Modo = 'alternativa' | 'busca' | 'upload' | 'remove'
@@ -27,7 +29,7 @@ const SINGULAR: Record<EditorElement['tipo'], string> = {
 }
 
 /** Linha do tempo do vídeo final, com uma prévia curta antes de publicar a edição. */
-export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, broll, onPreview, onApply }: Props) {
+export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, broll, onPreview, onApply, onChat }: Props) {
   const [editor, setEditor] = useState<EditorOut | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -38,6 +40,7 @@ export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, 
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
+  const painelRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     let vivo = true
@@ -86,6 +89,14 @@ export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, 
     setArquivo(null)
     setPreviewJobId(null)
     setErro(null)
+  }
+
+  function selecionarPorId(id: string) {
+    const elemento = editor?.elements.find((item) => item.id === id)
+    if (elemento) {
+      selecionar(elemento)
+      requestAnimationFrame(() => painelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+    }
   }
 
   function mudarModo(novo: Modo) {
@@ -147,6 +158,8 @@ export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, 
         }}>recarregar</button>
       </div>
       <div aria-live="polite"><ErrorBox erro={erro} onClose={() => setErro(null)} /></div>
+      <div className="editor-layout">
+      <div className="editor-conteudo">
       {elementos.length === 0 ? <p className="suave">Nenhum elemento editável foi encontrado no vídeo gerado.</p> : (
         <>
           <div className="editor-timeline" aria-label="Linha do tempo do vídeo final">
@@ -181,7 +194,7 @@ export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, 
           </div>
         </>
       )}
-      {selecionado && <section className="editor-painel" aria-label={`Editar ${selecionado.rotulo}`}>
+      {selecionado && <section ref={painelRef} className="editor-painel" aria-label={`Editar ${selecionado.rotulo}`}>
         <div>
           <h3>{selecionado.rotulo}</h3>
           <p className="suave numeros">{NOMES[selecionado.tipo]} · {fmtSeg(selecionado.inicio)}–{fmtSeg(selecionado.fim)}{selecionado.ativo ? '' : ' · inativo'}</p>
@@ -225,6 +238,10 @@ export default function EditorView({ projetoId, versao, jobs, bloqueado, plano, 
           </div>}
         </>}
       </section>}
+      </div>
+      <ChatPanel projetoId={projetoId} versao={versao} jobs={jobs} bloqueado={bloqueado}
+        onSend={onChat} onApply={onApply} onSelectElement={selecionarPorId} />
+      </div>
     </div>
   )
 }

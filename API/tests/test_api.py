@@ -39,6 +39,17 @@ def test_history_empty_project_cannot_undo(client):
     assert client.post(f"/api/projects/{pid}/history/undo").status_code == 409
 
 
+def test_chat_requires_rendered_video_and_nonempty_message(client):
+    pid = novo_projeto(client)
+    chat = client.get(f"/api/projects/{pid}/chat")
+    assert chat.status_code == 200
+    assert chat.json() == {"messages": [], "pending_token": None}
+    assert client.post(f"/api/projects/{pid}/chat", json={"message": " "}).status_code == 422
+    assert client.post(
+        f"/api/projects/{pid}/chat", json={"message": "tira o zoom"}
+    ).status_code == 409
+
+
 def esperar(client, jid: str, timeout: float = 60) -> dict:
     fim = time.monotonic() + timeout
     while time.monotonic() < fim:

@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Interface do chat pós-render (25/09/2026)
+
+- ✅ **P5-E6: fluxo técnico validado.** Testes sintéticos cobriram troca de imagem e remoção de zoom por chat, prévia automática, confirmação, IDs no histórico, pedidos ambíguos e replanejamento. A suíte completa teve 581 testes aprovados e 19 integrações não executadas; 11 testes focados passaram após o último ajuste. Ruff, doctor, build da interface e revisão independente aprovaram.
+- 👀 **P5-C6: conferir o chat com um vídeo real já gerado.** Na aba **Edição**, peça “tira o zoom da parte 2” e “troca a imagem da cesta de frutas por outra”. Confira se o histórico mostra os IDs certos e se a prévia corresponde ao trecho antes de clicar em **Aplicar ao vídeo final**; depois confirme que o resultado mudou apenas no trecho esperado. Peça “melhora essa parte” e verifique que o agente pergunta qual elemento ajustar. Peça “refaz todas as imagens” e confira a orientação para **Sugerir imagens e zooms** e **Gerar vídeo**. Reaproveite o projeto de P5-C5; a pertinência da imagem e o resultado visual dependem de avaliação humana. Nenhum arquivo novo em `samples/` é necessário.
+
 ### Ferramentas do chat pós-render (25/09/2026)
 
 - ✅ **P5-E5: ferramentas aprovadas tecnicamente.** Os schemas Pydantic, a ligação `bind_tools` e o loop do agente foram exercitados com modelo falso, sem rede. O agente listou elementos e trocou uma imagem pelo ID certo; uma duração inválida foi rejeitada pelo código sem alterar o plano. Casos de zoom encoberto por B-roll e encurtamento fora da frase ou da borda da palavra também foram rejeitados. A suíte completa passou; a revisão independente aprovou a etapa.

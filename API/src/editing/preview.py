@@ -15,7 +15,7 @@ from src.cache import atomic_write_text
 from src.images import PlanoImagens
 from src.project import Project
 
-Action = Literal["remove", "replace"]
+Action = Literal["remove", "replace", "chat"]
 TOKEN = re.compile(r"^[0-9a-f]{32}$")
 EDITABLE_TYPES = {"imagem", "broll", "zoom", "destaque"}
 
