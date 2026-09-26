@@ -94,13 +94,19 @@ def prepare_cutaways(items: Sequence[ItemBroll], settings: Settings) -> list[Cut
         if prepared is None:
             log.warning("B-roll '%s' indisponível; mantendo a câmera.", item.query)
             continue
-        cutaways.append(Cutaway(item.inicio, item.fim, prepared.arquivo, item.clipe))
+        entry = (TransitionConfig(**item.transicao_entrada.model_dump())
+                 if item.transicao_entrada else None)
+        exit_config = (TransitionConfig(**item.transicao_saida.model_dump())
+                       if item.transicao_saida else None)
+        cutaways.append(Cutaway(item.inicio, item.fim, prepared.arquivo, item.clipe,
+                                entry, exit_config))
     return cutaways
 
 
 def _plan_cutaways(
     cutaways: Sequence[Cutaway], segments: Sequence[Segment], fps: int,
     transition: Transition, fade: float, warnings: list[str] | None = None,
+    require_files: bool = True,
 ) -> list[_Planned]:
     if not 0 < fade <= 0.5:
         raise ValueError("fade do B-roll precisa estar entre 0 e 0,5 s")
@@ -149,7 +155,7 @@ def _plan_cutaways(
             raise ValueError("cutaway curto demais para a transição")
         if result and start - result[-1].end < result[-1].exit.frames + entry.frames + 1:
             raise ValueError("intervalo entre cutaways curto demais para a transição")
-        if not cut.arquivo.is_file():
+        if require_files and not cut.arquivo.is_file():
             raise ValueError(f"arquivo de B-roll ausente: {cut.arquivo}")
         result.append(_Planned(start, end, cut.arquivo, entry, exit_choice))
     return result
@@ -158,10 +164,12 @@ def _plan_cutaways(
 def validate_cutaways(
     cutaways: Sequence[Cutaway], segments: Sequence[Segment], fps: int,
     transition: Transition, fade: float, warnings: list[str] | None = None,
+    require_files: bool = True,
 ) -> list[tuple[int, int, Path]]:
     """Converte para frames e impede sobreposição ou travessia de uma emenda."""
     return [(p.start, p.end, p.path)
-            for p in _plan_cutaways(cutaways, segments, fps, transition, fade, warnings)]
+            for p in _plan_cutaways(cutaways, segments, fps, transition, fade,
+                                    warnings, require_files)]
 
 
 def apply_cutaways(

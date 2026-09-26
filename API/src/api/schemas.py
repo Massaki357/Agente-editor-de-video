@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.broll.planner import TransitionOverride
+from src.broll.transitions import Transition
 from src.highlight_captions.style import HighlightStyle
 from src.images import PlanoImagens
 from src.pipeline import PipelineOptions
@@ -146,6 +148,32 @@ class BrollEdit(BaseModel):
     query: str | None = Field(None, min_length=2, max_length=80)
     ativo: bool | None = None
     aprovado: bool | None = None
+    transicao_entrada: TransitionOverride | None = None
+    transicao_saida: TransitionOverride | None = None
+
+
+class DefaultTransitionEdit(BaseModel):
+    preset: Transition
+
+
+class TransitionPresetOut(BaseModel):
+    id: str
+    nome: str
+    descricao: str
+    categoria: str
+    duracao_padrao: float
+    duracao_min: float
+    duracao_max: float
+    direcoes: list[str]
+    direcao_padrao: str | None
+    intensidades: list[float]
+    intensidade_padrao: float
+    custo: str
+    preview_url: str
+
+
+class TransitionCatalogOut(BaseModel):
+    presets: list[TransitionPresetOut]
 
 
 class BrollItemOut(BaseModel):
@@ -162,6 +190,8 @@ class BrollItemOut(BaseModel):
     video_url: str | None = None
     video_id: str | None = None
     alternativas: list[dict] = Field(default_factory=list)
+    transicao_entrada: TransitionOverride | None = None
+    transicao_saida: TransitionOverride | None = None
 
 
 class BrollPreviewOut(BaseModel):

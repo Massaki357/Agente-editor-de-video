@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 
 import cv2
 import numpy as np
@@ -106,12 +108,21 @@ def test_catalog_renders_entry_and_exit_previews_with_installed_effects(tmp_path
     assert len(data["presets"]) == len(PRESETS)
     assert (tmp_path / "index.html").is_file()
     hard_cut = _video_frames(tmp_path / "hard_cut.mp4")
+    audio_hashes = set()
     for entry in data["presets"]:
         assert entry["nome"] and entry["descricao"] and entry["custo"]
         assert entry["render_segundos"] > 0
         assert entry["xfade_entrada"] is None or entry["xfade_entrada"] in installed
         assert entry["xfade_saida"] is None or entry["xfade_saida"] in installed
         frames = _video_frames(tmp_path / entry["arquivo"])
+        audio = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-i",
+             str(tmp_path / entry["arquivo"]), "-map", "0:a:0", "-f", "s16le",
+             "-ac", "1", "-ar", "48000", "-"],
+            capture_output=True, check=True,
+        ).stdout
+        assert audio
+        audio_hashes.add(hashlib.sha256(audio).hexdigest())
         assert len(frames) == 135
         assert frames.shape[1:3] == (320, 180)
         assert np.min(np.mean(frames, axis=(1, 2, 3))) > 10
@@ -120,6 +131,7 @@ def test_catalog_renders_entry_and_exit_previews_with_installed_effects(tmp_path
         if entry["id"] != "hard_cut":
             for frame in (49, 94):  # entrada e saída diferem do corte imediato
                 assert np.mean(np.abs(frames[frame].astype(int) - hard_cut[frame].astype(int))) > 8
+    assert len(audio_hashes) == 1
 
 
 def test_preview_rejects_invalid_dimensions_before_ffmpeg(tmp_path, monkeypatch):

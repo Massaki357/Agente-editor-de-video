@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.broll.catalog import Direction, choose
 from src.cache import read_json_cache, write_json_cache
 from src.config import Settings, get_settings
 from src.llm.schemas import BrollSugerido, PlanoBroll
@@ -73,6 +74,21 @@ class VideoBroll(BaseModel):
     autor: str = ""
 
 
+class TransitionOverride(BaseModel):
+    """Escolha persistida de uma borda; o catálogo valida os parâmetros."""
+
+    preset: str
+    duration: float | None = None
+    direction: Direction | None = None
+    intensity: float | None = None
+
+    @model_validator(mode="after")
+    def _validar(self) -> TransitionOverride:
+        choose(self.preset, fps=30, duration=self.duration,
+               direction=self.direction, intensity=self.intensity)
+        return self
+
+
 class ItemBroll(BaseModel):
     """Cutaway validado e pronto para a busca de vídeo da Etapa 1."""
 
@@ -89,6 +105,8 @@ class ItemBroll(BaseModel):
     aprovado: bool = False
     video: VideoBroll | None = None
     alternativas: list[dict[str, Any]] = Field(default_factory=list)
+    transicao_entrada: TransitionOverride | None = None
+    transicao_saida: TransitionOverride | None = None
 
     @property
     def fim(self) -> float:

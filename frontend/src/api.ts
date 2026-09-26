@@ -82,7 +82,7 @@ export interface PipelineOptions {
   broll: boolean
   /** Intervalo mínimo entre o início de dois cutaways, em segundos. */
   broll_intervalo_min: number
-  broll_transition: 'hard_cut' | 'crossfade' | 'slide' | 'wipe'
+  broll_transition: TransitionId
   cortes: boolean
   cortes_fala: boolean
   reenquadrar: boolean
@@ -164,7 +164,39 @@ export interface BrollItemOut {
   pagina: string | null
   video_id: string | null
   video_url: string | null
+  transicao_entrada?: TransitionConfig | null
+  transicao_saida?: TransitionConfig | null
   alternativas?: BrollAlternativa[]
+}
+
+export type TransitionId = 'hard_cut' | 'crossfade' | 'slide' | 'wipe' | 'reveal' | 'zoom' | 'blur'
+export type TransitionDirection = 'left' | 'right' | 'up' | 'down'
+
+export interface TransitionConfig {
+  preset: TransitionId
+  duration: number | null
+  direction: TransitionDirection | null
+  intensity: number | null
+}
+
+export interface TransitionPreset {
+  id: TransitionId
+  nome: string
+  descricao: string
+  categoria: string
+  duracao_padrao: number
+  duracao_min: number
+  duracao_max: number
+  direcoes: TransitionDirection[]
+  direcao_padrao: TransitionDirection | null
+  intensidades: number[]
+  intensidade_padrao: number
+  custo: string
+  preview_url: string
+}
+
+export interface TransitionCatalogOut {
+  presets: TransitionPreset[]
 }
 
 export interface BrollAlternativa {
@@ -184,6 +216,8 @@ export interface BrollEdit {
   query?: string
   ativo?: boolean
   aprovado?: boolean
+  transicao_entrada?: TransitionConfig | null
+  transicao_saida?: TransitionConfig | null
 }
 
 export interface Palavra {
@@ -493,6 +527,10 @@ export const api = {
     request<RostoOut>('GET', `/projects/${enc(id)}/clips/${indice}/rosto`),
   imagens: (id: string) => request<PlanoOut>('GET', `/projects/${enc(id)}/imagens`),
   broll: (id: string) => request<BrollPreviewOut>('GET', `/projects/${enc(id)}/broll`),
+  brollTransitions: (id: string) =>
+    request<TransitionCatalogOut>('GET', `/projects/${enc(id)}/broll/transitions`),
+  setDefaultBrollTransition: (id: string, preset: TransitionId) =>
+    request<{ preset: TransitionId }>('PATCH', `/projects/${enc(id)}/broll/transitions/default`, { preset }),
   editBroll: (id: string, itemId: number, mudanca: BrollEdit) =>
     request<BrollPreviewOut>('PATCH', `/projects/${enc(id)}/broll/${itemId}`, mudanca),
   editImagem: (id: string, itemId: number, mudanca: ImagemEdit) =>

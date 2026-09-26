@@ -1,9 +1,12 @@
 // Estado da prévia de cutaways de um projeto: carga, aprovação e troca de busca.
 import { useCallback, useEffect, useState } from 'react'
-import { api, ApiError, mensagemErro, type BrollEdit, type BrollItemOut, type BrollPreviewOut } from './api'
+import { api, ApiError, mensagemErro, type BrollEdit, type BrollItemOut, type BrollPreviewOut, type TransitionCatalogOut } from './api'
 
 export interface EstadoBroll {
   dados: BrollPreviewOut | null
+  catalogo: TransitionCatalogOut | null
+  erroCatalogo: string | null
+  carregandoCatalogo: boolean
   semPrevia: boolean
   carregando: boolean
   erro: string | null
@@ -16,11 +19,25 @@ export interface EstadoBroll {
 /** `versao` muda quando um job de B-roll ou geração termina. */
 export function useBroll(projetoId: string, versao: number): EstadoBroll {
   const [dados, setDados] = useState<BrollPreviewOut | null>(null)
+  const [catalogo, setCatalogo] = useState<TransitionCatalogOut | null>(null)
+  const [erroCatalogo, setErroCatalogo] = useState<string | null>(null)
+  const [carregandoCatalogo, setCarregandoCatalogo] = useState(true)
   const [semPrevia, setSemPrevia] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [salvandoItem, setSalvandoItem] = useState<number | null>(null)
   const [recarga, setRecarga] = useState(0)
+
+  useEffect(() => {
+    let vivo = true
+    setCarregandoCatalogo(true)
+    setErroCatalogo(null)
+    api.brollTransitions(projetoId)
+      .then((d) => { if (vivo) setCatalogo(d) })
+      .catch((e) => { if (vivo) setErroCatalogo(mensagemErro(e)) })
+      .finally(() => { if (vivo) setCarregandoCatalogo(false) })
+    return () => { vivo = false }
+  }, [projetoId])
 
   useEffect(() => {
     let vivo = true
@@ -56,6 +73,9 @@ export function useBroll(projetoId: string, versao: number): EstadoBroll {
 
   return {
     dados,
+    catalogo,
+    erroCatalogo,
+    carregandoCatalogo,
     semPrevia,
     carregando,
     erro,

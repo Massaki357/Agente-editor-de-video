@@ -294,10 +294,12 @@ export default function Workspace({
           <OptionsPanel
             key={`${config ? 'config' : 'sem-config'}-${recarga}`}
             config={config}
+            projetoId={projetoId}
             opcoesProjeto={projeto}
             bloqueado={bloqueado}
             semClipes={projeto.clipes.length === 0}
             onRodar={(t, o) => void rodar(t, o)}
+            onTransicaoSalva={(preset) => setProjeto((p) => p ? { ...p, broll_transition: preset } : p)}
           />
         </div>
         <div className="lateral-rodape">

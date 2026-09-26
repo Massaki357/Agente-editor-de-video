@@ -1048,6 +1048,59 @@ pre {
 .broll-lista .secao {
   margin: 0;
 }
+.transicoes-catalogo {
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  padding: var(--e2);
+}
+.transicoes-catalogo h4 {
+  margin: 0 0 var(--e1);
+}
+.transicoes-grade {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--e2);
+}
+.transicao-previsao {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  min-width: 0;
+  padding: var(--e1);
+  border: 1px solid var(--borda);
+  border-radius: var(--e1);
+  background: var(--elevado);
+}
+.transicao-previsao video {
+  width: 100%;
+  max-height: 220px;
+  background: var(--fundo);
+}
+.transicao-previsao p {
+  margin: 0;
+  font-size: 12px;
+}
+.transicoes-item {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--e2);
+}
+.transicao-lado {
+  min-width: 0;
+  padding: var(--e2);
+  border: 1px solid var(--borda);
+  border-radius: var(--e1);
+}
+.transicao-lado .campo {
+  min-width: 0;
+}
+.transicao-lado input,
+.transicao-lado select {
+  max-width: 100%;
+}
+.transicao-lado p {
+  margin: var(--e1) 0;
+}
 .broll-video {
   width: 160px;
   aspect-ratio: 9 / 16;
@@ -1395,6 +1448,15 @@ pre {
 }
 
 @media (max-width: 700px) {
+  .transicoes-grade {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(160px, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+  .transicoes-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .topo {
     flex-wrap: wrap;
     gap: var(--e2);

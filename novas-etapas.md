@@ -758,7 +758,7 @@ Ampliar os efeitos entre câmera, B-roll e outros elementos da timeline. A Parte
 
 - [x] Etapa 0: Catálogo e parâmetros
 - [x] Etapa 1: Render e testes dos novos efeitos
-- [ ] Etapa 2: Escolha e prévia na interface
+- [x] Etapa 2: Escolha e prévia na interface
 
 Etapa 0 verificada: o catálogo inventaria os efeitos `xfade` do FFmpeg instalado
 e seleciona sete presets: corte seco (0 s), fusão (0,25 s), deslizamento e
@@ -785,3 +785,16 @@ memória do processo FFmpeg: 145–172 MiB nesta máquina. Medidas detalhadas:
 `output/parte6_etapa1_benchmark.json`. A seleção individual persistida e a
 prévia na interface são da Etapa 2.
 Os testes automatizados, doctor, Ruff e a revisão independente aprovaram a etapa.
+
+Etapa 2 verificada: o Plano criativo mostra sete prévias sintéticas com entrada,
+saída e áudio idêntico, em grade de três efeitos lado a lado. Os ativos ficam em
+`API/assets/transitions/`; a comparação não busca nem baixa novamente o B-roll.
+O efeito padrão é salvo imediatamente no projeto. Cada cutaway permite escolher
+entrada/saída, duração, direção e intensidade dentro dos limites do catálogo;
+restaurar o padrão envia `null`. As escolhas ficam no `project.json` e são
+reaproveitadas no próximo render, com cache fora do trecho alterado preservado.
+Testes cobrem persistência, parâmetros inválidos, margens de clipe, bloqueio por
+job ativo e reaproveitamento da mídia. Build do frontend, Ruff, doctor e revisão
+independente passaram. A conferência visual e estética permanece em P6-C2 de
+`testes-pendentes.md`.
+Suíte completa: 619 testes aprovados, 19 integrações não executadas.

@@ -1,9 +1,10 @@
 import { useId, useState, type ChangeEvent } from 'react'
-import type { ConfigOut, JobTipo, PipelineOptions, ProjectOut } from '../api'
+import { api, mensagemErro, type ConfigOut, type JobTipo, type PipelineOptions, type ProjectOut, type TransitionId } from '../api'
 
 interface Props {
   /** GET /config: opções padrão e modelos de LLM (null enquanto não chegou) */
   config: ConfigOut | null
+  projetoId: string
   /** Preferências de vídeo salvas no projeto. */
   opcoesProjeto?: Pick<ProjectOut,
     | 'estabilizar'
@@ -18,6 +19,7 @@ interface Props {
   bloqueado: boolean
   semClipes: boolean
   onRodar: (tipo: JobTipo, opcoes?: PipelineOptions) => void
+  onTransicaoSalva: (preset: TransitionId) => void
 }
 
 /** Usado só enquanto GET /config não responde (o pai recria o painel com a key). */
@@ -88,7 +90,7 @@ const FALLBACK: PipelineOptions = {
 const DICA_BLOQUEIO = 'há um job em andamento: espere terminar ou cancele'
 const DICA_SEM_CLIPES = 'adicione clipes ao projeto primeiro'
 
-export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClipes, onRodar }: Props) {
+export default function OptionsPanel({ config, projetoId, opcoesProjeto, bloqueado, semClipes, onRodar, onTransicaoSalva }: Props) {
   const padrao = config?.opcoes_padrao ?? null
   const [op, setOp] = useState<PipelineOptions>(() => {
     const destaque = opcoesProjeto?.legendas_destaque ?? padrao?.legendas_destaque ?? FALLBACK.legendas_destaque
@@ -107,6 +109,25 @@ export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClip
     }
   })
   const id = useId()
+  const [salvandoTransicao, setSalvandoTransicao] = useState(false)
+  const [erroTransicao, setErroTransicao] = useState<string | null>(null)
+
+  const salvarTransicaoPadrao = async (preset: TransitionId) => {
+    const anterior = op.broll_transition
+    if (preset === anterior) return
+    setOp((atual) => ({ ...atual, broll_transition: preset }))
+    setSalvandoTransicao(true)
+    setErroTransicao(null)
+    try {
+      await api.setDefaultBrollTransition(projetoId, preset)
+      onTransicaoSalva(preset)
+    } catch (e) {
+      setOp((atual) => ({ ...atual, broll_transition: anterior }))
+      setErroTransicao(`Não foi possível salvar a transição padrão: ${mensagemErro(e)}`)
+    } finally {
+      setSalvandoTransicao(false)
+    }
+  }
 
   const setEstilo = (mudanca: Partial<PipelineOptions['estilo_legenda']>) =>
     setOp({ ...op, estilo_legenda: { ...op.estilo_legenda, ...mudanca } })
@@ -117,7 +138,7 @@ export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClip
   const setAudio = (mudanca: Partial<PipelineOptions['parametros_audio']>) =>
     setOp({ ...op, parametros_audio: { ...op.parametros_audio, ...mudanca } })
 
-  const off = bloqueado || semClipes
+  const off = bloqueado || semClipes || salvandoTransicao
   const dica = bloqueado ? DICA_BLOQUEIO : semClipes ? DICA_SEM_CLIPES : undefined
   const modelos = config?.llm_models ?? []
   const modoLegenda = op.legendas_destaque ? 'destaque' : op.legendas_continuas ? 'continua' : 'nenhuma'
@@ -426,16 +447,22 @@ export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClip
               <select
                 id={`${id}-broll-transition`}
                 value={op.broll_transition}
-                onChange={(e) => setOp({ ...op, broll_transition: e.target.value as PipelineOptions['broll_transition'] })}
+                disabled={salvandoTransicao}
+                onChange={(e) => void salvarTransicaoPadrao(e.target.value as TransitionId)}
               >
                 <option value="hard_cut">corte seco</option>
-                <option value="crossfade">dissolver</option>
-                <option value="slide">deslizar</option>
+                <option value="crossfade">fusão</option>
+                <option value="slide">deslizamento</option>
                 <option value="wipe">varredura</option>
+                <option value="reveal">revelação</option>
+                <option value="zoom">zoom de entrada</option>
+                <option value="blur">desfoque</option>
               </select>
+              {salvandoTransicao && <span className="suave" role="status">salvando…</span>}
             </div>
           </div>
         )}
+        {erroTransicao && <p className="texto-aviso" role="alert">{erroTransicao}</p>}
 
         <label className="caixa" title={op.reenquadrar ? undefined : 'só funciona com o vertical 9:16 ligado'}>
           <input
@@ -499,7 +526,10 @@ export default function OptionsPanel({ config, opcoesProjeto, bloqueado, semClip
           ▶ Gerar vídeo
         </button>
         {padrao && (
-          <button type="button" className="link" onClick={() => setOp(padrao)} disabled={bloqueado}>
+          <button type="button" className="link" onClick={() => {
+            setOp(padrao)
+            void salvarTransicaoPadrao(padrao.broll_transition)
+          }} disabled={bloqueado || salvandoTransicao}>
             restaurar padrões
           </button>
         )}

@@ -236,6 +236,63 @@ def test_broll_options_are_saved_and_reused(client, video_dir, monkeypatch):
         assert r.status_code == 422
 
 
+def test_transition_catalog_previews_and_default_are_persisted(client, tmp_path):
+    pid = novo_projeto(client)
+    catalog = client.get(f"/api/projects/{pid}/broll/transitions")
+    assert catalog.status_code == 200, catalog.text
+    presets = catalog.json()["presets"]
+    assert len(presets) == 7
+    assert {p["id"] for p in presets} >= {"hard_cut", "reveal", "zoom", "blur"}
+    hashes = set()
+    for preset in presets[:3]:
+        response = client.get(preset["preview_url"])
+        assert response.status_code == 200
+        path = tmp_path / f"{preset['id']}.mp4"
+        path.write_bytes(response.content)
+        decoded = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-i",
+             str(path), "-map", "0:a:0", "-f", "s16le", "-ac", "1",
+             "-ar", "48000", "-"], capture_output=True, check=True,
+        ).stdout
+        assert decoded
+        hashes.add(decoded)
+    assert len(hashes) == 1  # pelo menos três efeitos com o mesmo áudio
+    changed = client.patch(
+        f"/api/projects/{pid}/broll/transitions/default", json={"preset": "reveal"}
+    )
+    assert changed.status_code == 200, changed.text
+    assert client.get(f"/api/projects/{pid}").json()["broll_transition"] == "reveal"
+    assert client.app.state.store.load(pid).broll_transition == "reveal"
+    invalid = client.patch(
+        f"/api/projects/{pid}/broll/transitions/default", json={"preset": "inventado"}
+    )
+    assert invalid.status_code == 422
+    assert client.get(f"/api/projects/{pid}/broll/transitions/inventado/preview").status_code == 404
+
+
+def test_transition_override_rejects_clip_edge_before_saving(client, video_dir):
+    from src.broll.planner import ItemBroll
+    from src.images import PlanoImagens, timeline_signature
+
+    pid = novo_projeto(client)
+    assert client.post(f"/api/projects/{pid}/clips/import",
+                       json={"pasta": str(video_dir)}).status_code == 200
+    store = client.app.state.store
+    project = store.load(pid)
+    item = ItemBroll(
+        id=0, clipe=0, trecho_inicio_palavra=0, trecho_fim_palavra=1,
+        texto="teste", query="test video", inicio=0.1, duracao_max=1.5,
+        motivo="teste",
+    )
+    store.save_plan(pid, PlanoImagens(assinatura=timeline_signature(project), broll=[item]))
+    response = client.patch(
+        f"/api/projects/{pid}/broll/0",
+        json={"transicao_entrada": {"preset": "zoom", "duration": 0.5}},
+    )
+    assert response.status_code == 422
+    assert store.load_plan(pid).broll[0].transicao_entrada is None
+
+
 # ------------------------------------------------------------------ projetos
 
 
@@ -768,6 +825,43 @@ def test_broll_preview_approval_swap_and_removal_reuse_the_plan(client, tmp_path
     assert center_rgb()[2] > 180  # azul sobre a câmera vermelha
     assert calls["plan"] == 1 and calls["video"] == 1
 
+    before_transition = output.read_bytes()
+    entry = {"preset": "zoom", "duration": 0.35}
+    exit_choice = {"preset": "reveal", "duration": 0.3, "direction": "up"}
+    change = client.patch(
+        f"/api/projects/{pid}/broll/0",
+        json={"transicao_entrada": entry, "transicao_saida": exit_choice},
+    )
+    assert change.status_code == 200, change.text
+    assert change.json()["itens"][0]["transicao_entrada"]["preset"] == "zoom"
+    persisted = store.load_plan(pid).broll[0]
+    assert persisted.transicao_entrada.preset == "zoom"
+    assert persisted.transicao_saida.direction == "up"
+    for invalid_choice in (
+        {"preset": "zoom", "duration": 0.8},
+        {"preset": "zoom", "direction": "left"},
+        {"preset": "inventado"},
+    ):
+        rejected = client.patch(
+            f"/api/projects/{pid}/broll/0", json={"transicao_entrada": invalid_choice}
+        )
+        assert rejected.status_code == 422
+    rerendered = esperar(
+        client,
+        client.post(f"/api/projects/{pid}/jobs", json={"tipo": "gerar", "opcoes": options}).json()[
+            "id"
+        ],
+    )
+    assert rerendered["status"] == "concluido", rerendered
+    assert output.read_bytes() != before_transition
+    assert rerendered["resultado"]["segmentos_reutilizados"] > 0
+    assert calls["video"] == 1  # mesma mídia preparada; nenhuma busca nova
+    assert store.load_plan(pid).broll[0].transicao_entrada.preset == "zoom"
+
+    reset = client.patch(f"/api/projects/{pid}/broll/0", json={"transicao_entrada": None})
+    assert reset.status_code == 200
+    assert store.load_plan(pid).broll[0].transicao_entrada is None
+
     disabled = client.patch(f"/api/projects/{pid}/broll/0", json={"ativo": False})
     assert disabled.status_code == 200 and disabled.json()["itens"][0]["aprovado"] is False
     second = esperar(
@@ -829,6 +923,13 @@ def test_broll_preview_approval_swap_and_removal_reuse_the_plan(client, tmp_path
     ).json()["id"]
     time.sleep(0.2)
     assert client.patch(f"/api/projects/{pid}/broll/0", json={"ativo": False}).status_code == 409
+    assert client.patch(
+        f"/api/projects/{pid}/broll/0",
+        json={"transicao_saida": {"preset": "blur"}},
+    ).status_code == 409
+    assert client.patch(
+        f"/api/projects/{pid}/broll/transitions/default", json={"preset": "blur"},
+    ).status_code == 409
     client.post(f"/api/jobs/{jid}/cancel")
     esperar(client, jid)
 

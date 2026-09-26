@@ -178,6 +178,7 @@ def render_preview(choice: Choice, output: Path, *, fps: int = 30,
         command += ["-f", "lavfi", "-i", (
             f"{source}=size={width}x{height}:rate={fps}:duration={frames / fps:.6f}"
         )]
+    command += ["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=4.5"]
     graph = [
         f"[{i}:v]fps={fps},trim=end_frame={frames},setpts=PTS-STARTPTS,"
         f"settb=AVTB,format=yuv420p[p{i}]"
@@ -193,9 +194,10 @@ def render_preview(choice: Choice, output: Path, *, fps: int = 30,
             f"offset={2 * base_frames / fps:.6f}[v]",
         ]
     output.parent.mkdir(parents=True, exist_ok=True)
-    command += ["-filter_complex", ";".join(graph), "-map", "[v]", "-frames:v",
-                str(3 * base_frames), "-an", "-c:v", "libx264", "-preset", "veryfast",
-                "-pix_fmt", "yuv420p", str(output)]
+    command += ["-filter_complex", ";".join(graph), "-map", "[v]", "-map", "3:a:0",
+                "-frames:v", str(3 * base_frames), "-c:v", "libx264",
+                "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-b:a", "96k", "-shortest", str(output)]
     start_time = time.perf_counter()
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
@@ -227,7 +229,7 @@ def generate_catalog(output_dir: Path, *, fps: int = 30) -> Path:
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     cards = "\n".join(
         f'<article><h2>{escape(entry["nome"])}</h2>'
-        f'<video controls muted playsinline src="{entry["arquivo"]}"></video>'
+        f'<video controls playsinline src="{entry["arquivo"]}"></video>'
         f'<p>{escape(entry["descricao"])} Custo estimado: {entry["custo"]} '
         f'({entry["custo_ms_por_quadro"]} ms/quadro nesta prévia).</p></article>'
         for entry in entries
@@ -239,7 +241,7 @@ def generate_catalog(output_dir: Path, *, fps: int = 30) -> Path:
         'grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}'
         'article{background:#252b39;padding:14px;border-radius:10px}'
         'video{width:100%;max-width:240px}</style><h1>Transições de B-roll</h1>'
-        '<p>Câmera → B-roll → câmera. Prévias sintéticas sem áudio.</p>'
+        '<p>Câmera → B-roll → câmera. Mesma cena e áudio sintéticos.</p>'
         f'<main>{cards}</main></html>',
         encoding="utf-8",
     )

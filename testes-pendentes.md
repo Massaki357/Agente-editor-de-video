@@ -97,6 +97,10 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ### Catálogo de transições adicionais (25/09/2026)
 
+- ✅ **P6-E2: escolha e prévia aprovadas tecnicamente (26/09/2026).** Catálogo com sete MP4s, mesma cena e áudio; seleção padrão e por entrada/saída persistida no projeto. Testes verificam rejeição de parâmetros e bordas inválidas, bloqueio por job ativo e render sem nova busca de B-roll, com segmentos sem mudança reutilizados. Suíte: 619 aprovados e 19 integrações não executadas; Ruff, doctor, build do frontend e revisão independente passaram.
+
+- 👀 **P6-C2: conferir a escolha de efeitos na interface.** Abra Plano criativo → B-roll e compare os cartões do catálogo (mesma cena e tom sintéticos, entrada e saída). Em Opções, escolha o efeito padrão; num cutaway, escolha duração/direção de entrada e saída e salve cada borda. Reabra o projeto e confira as escolhas; gere novamente para avaliar os efeitos com sua fala. A persistência, rejeição de parâmetros inválidos, reutilização de segmentos e ausência de nova busca do B-roll foram verificadas automaticamente. Não é necessário adicionar vídeos em `samples/`.
+
 - ✅ **P6-E1: render dos sete efeitos validado automaticamente.** Vídeo sintético e recorte real reduzido a 360x640: 120 quadros, 4,0 s, áudio idêntico em todos os presets. Testes de borda com fontes em movimento não encontraram quadros pretos ou repetidos; fallback para corte seco e invalidação localizada do cache foram testados. Medidas de latência e memória: `output/parte6_etapa1_benchmark.json` (gerado com `uv run python -m src.broll.benchmark --real ../output/samples_palestra_9x16.mp4 --output ../output/parte6_etapa1_benchmark.json` em `API/`).
 - 👀 **P6-C1: conferir o estilo dos efeitos no seu vídeo quando a Etapa 2 liberar a escolha na interface.** Compare revelação, zoom e desfoque na entrada e na volta do B-roll, verificando se o efeito combina com a fala e não distrai. A integridade de quadros, duração e áudio já foi testada automaticamente.
 

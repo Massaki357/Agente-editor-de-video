@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.broll.planner import VideoBroll
+from src.broll.planner import TransitionOverride, VideoBroll
 from src.broll.source import prepare_item
 from src.config import Settings, get_settings
 from src.images import PlanoImagens
@@ -39,6 +39,7 @@ def edit_preview(
     query: str | None = None,
     ativo: bool | None = None,
     aprovado: bool | None = None,
+    transicoes: dict[str, TransitionOverride | None] | None = None,
 ) -> PlanoImagens:
     """Troca a busca, aprova ou remove; mantém os outros itens e a assinatura."""
     updated = plano.model_copy(deep=True)
@@ -62,4 +63,8 @@ def edit_preview(
         if aprovado and (not item.ativo or item.video is None or not item.video.arquivo.is_file()):
             raise ValueError("gere a prévia do B-roll antes de aprovar este item")
         item.aprovado = aprovado
+    for key, value in (transicoes or {}).items():
+        if key not in {"transicao_entrada", "transicao_saida"}:
+            raise ValueError("borda de transição inválida")
+        setattr(item, key, value)
     return updated
