@@ -625,7 +625,7 @@ src/editing/
 - [x] Etapa 4: UI de edição pós-render
 - [x] Etapa 5: Ferramentas do agente de chat (tool calling)
 - [x] Etapa 6: Interface de chat
-- [ ] Etapa 7: Testes de integração e robustez
+- [x] Etapa 7: Testes de integração e robustez
 
 Etapa 0 verificada: IDs estáveis no `project.json` v2, plano criativo lido do
 documento, migração v1 com backup e keyframes/legendas registrados após render.
@@ -684,6 +684,17 @@ completa passou com 581 testes (19 integrações não executadas); os 11 testes
 focados passaram após o último ajuste. Ruff, doctor, build do frontend e
 revisão independente aprovaram. A conferência visual e com LLM real consta em
 `testes-pendentes.md`.
+
+Etapa 7 verificada: um teste com vídeo sintético aplicou cinco edições seguidas
+(três manuais e duas pelo chat), confirmou cada prévia e comprovou que todos os
+quadros do B-roll vizinho e da lacuna permaneceram iguais. Após cada mudança,
+conferiu o documento por ID, os intervalos, os segmentos reutilizados, o
+manifesto do cache e a versão registrada. Desfazer e refazer restauraram
+exatamente os bytes das versões esperadas. O README explica o fluxo pós-render,
+as ações do chat v1 e os pedidos que exigem novo planejamento. A suíte completa
+passou com 582 testes (19 integrações não executadas); teste focado, Ruff,
+doctor, build do frontend e revisão independente passaram. A avaliação visual
+com vídeo real está em `testes-pendentes.md`.
 
 ---
 

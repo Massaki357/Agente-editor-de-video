@@ -236,6 +236,46 @@ O job devolve `token` e `preview_url`; depois de assistir, chame
 **Plano criativo** continua disponível para quem não precisa conferir uma
 prévia do trecho.
 
+### Ajustar pelo chat depois de gerar
+
+Na aba **Edição**, o chat fica ao lado da linha do tempo. Descreva o elemento
+existente e o ajuste, por exemplo, “tira o zoom da parte 2” ou “troca a imagem
+da cesta de frutas por uma com maçãs”. O agente mostra o ID do elemento e gera
+automaticamente uma prévia curta, reduzida e sem áudio. Assista e clique em
+**Aplicar ao vídeo final** para confirmar. Até esse clique, o MP4 final não
+muda. Cada pedido altera no máximo um elemento; faça outro pedido para a
+próxima mudança. As edições aplicadas entram em **Desfazer/Refazer**. O histórico
+da conversa permanece no projeto.
+
+O chat da v1 aceita estas ações sobre elementos **já existentes**:
+
+| Pedido | Elementos e limite |
+|---|---|
+| Listar ou localizar elementos | Imagens, B-roll, zooms e destaques, com ID e tempo |
+| Remover um elemento | Imagem, B-roll, zoom ou destaque |
+| Trocar uma imagem | Nova busca de foto para um ID `img_...` |
+| Ajustar duração | Imagem, zoom ou destaque dentro dos limites do plano; B-roll só pode ser encurtado até o fim de uma palavra da frase original |
+| Ajustar intensidade | Zoom existente, dentro do limite usado na geração |
+| Mover um elemento | Imagem ou zoom, dentro do mesmo trecho mantido |
+
+Se o pedido não identificar qual elemento ou trecho deve mudar, o agente pede
+mais detalhes. Para trocar B-roll por outra mídia, escolher uma foto alternativa
+ou enviar arquivo próprio, use os controles manuais na aba **Edição** ou no
+**Plano criativo**. “Refaz todas as imagens” exige novo planejamento: use
+**Sugerir imagens e zooms** nas opções e depois **Gerar vídeo**. Adicionar
+efeitos novos ou reescrever textos dos destaques também está fora do chat da
+v1 e exige configurar e gerar novamente o plano/vídeo correspondente. Esses
+pedidos podem reprocessar o plano completo em vez de aproveitar uma edição
+pontual.
+
+Pela API, `GET /api/projects/<id>/chat` consulta a conversa e a prévia
+pendente. `POST /api/projects/<id>/chat` com
+`{"message":"troca a imagem da cesta por maçãs"}` devolve um job `conversar`;
+consulte `GET /api/jobs/<job_id>` para obter `acoes` (com IDs) e `preview`.
+Depois de conferir o vídeo em `preview.preview_url`, confirme com
+`POST /api/projects/<id>/editor/previews/<token>/apply`. O projeto precisa ter
+um vídeo final gerado e sem alterações pendentes no plano.
+
 ## Estabilizando o vídeo
 
 **No editor**, marque "estabilizar clipes" no grupo *Imagem* e escolha o nível
