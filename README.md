@@ -114,6 +114,28 @@ resultado. Essas ações reaproveitam o plano salvo; não chamam o LLM outra vez
 salvas no `project.json` ao iniciar um job com opções. Imagens ativas têm prioridade se
 alguém editar o plano após a prévia; o render também omite zooms cobertos por B-roll.
 
+### Catálogo de transições adicionais
+
+Para comparar as prévias da Parte 6, Etapa 0, rode dentro de `API/`:
+
+```powershell
+uv run python -m src.broll.catalog
+```
+
+Abra `output/parte6_etapa0_catalogo/index.html` no navegador. Há sete vídeos
+sintéticos de 4,5 s (câmera → B-roll → câmera), mais `catalogo.json` com o
+inventário do `xfade` instalado, parâmetros e custo de render medido nessa
+prévia pequena; o tempo de um vídeo final será diferente. O catálogo trabalha
+na grade de 30 fps do editor e inclui corte seco, fusão, deslizamento, varredura, revelação,
+zoom de entrada e desfoque. Direção só vale para movimento/revelação; a fusão
+aceita intensidade suave, normal ou marcada. Outros efeitos têm intensidade
+fixa. Durações fora dos limites, cutaways curtos ou transições que atravessam
+emendas são rejeitados antes do render. Os efeitos novos entram no vídeo final
+na Etapa 1; o corte seco continua sendo o padrão.
+
+O inventário usa os nomes oferecidos pelo filtro
+[`xfade` do FFmpeg](https://ffmpeg.org/ffmpeg-filters.html#xfade) instalado na máquina.
+
 ### Legendas de destaque
 
 A Parte 4 escolhe trechos literais de até cinco palavras a partir da transcrição após

@@ -95,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ## Histórico
 
+### Catálogo de transições adicionais (25/09/2026)
+
+- ✅ **P6-E0: catálogo validado tecnicamente.** Sete presets com limites e custo relativo; sete prévias sintéticas de 135 quadros mostram entrada e saída. A validação rejeita parâmetros inválidos, cutaways curtos e emendas antes do render. Os 22 testes focados, Ruff, doctor, build e revisão independente passaram; a suíte completa teve 603 testes aprovados e 19 integrações não executadas.
+- 👀 **P6-C0: conferir os sete presets quando puder.** Abra `output/parte6_etapa0_catalogo/index.html` e assista às prévias sintéticas de corte seco, fusão, deslizamento, varredura, revelação, zoom e desfoque. Cada vídeo mostra câmera → B-roll → câmera. Confira se a entrada e a saída são perceptíveis e quais efeitos combinam com o estilo desejado; nenhum arquivo novo em `samples/` é necessário. Os novos presets ainda não estão ligados ao render final (Etapa 1).
+
 ### Interface do chat pós-render (25/09/2026)
 
 - ✅ **P5-E7: sequência e robustez validadas tecnicamente.** Um teste com vídeo sintético aplicou cinco edições (três manuais e duas por chat), preservou todos os quadros do B-roll vizinho e da lacuna, confirmou IDs e intervalos, reutilização do cache, versões do histórico e restauração exata por Desfazer/Refazer. O README documenta os comandos do chat v1 e o replanejamento. Suíte completa: 582 testes aprovados, 19 integrações não executadas; teste focado, Ruff, doctor, build e revisão independente passaram.

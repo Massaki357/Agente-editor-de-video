@@ -756,6 +756,20 @@ Ampliar os efeitos entre câmera, B-roll e outros elementos da timeline. A Parte
 
 ## Checklist Parte 6
 
-- [ ] Etapa 0: Catálogo e parâmetros
+- [x] Etapa 0: Catálogo e parâmetros
 - [ ] Etapa 1: Render e testes dos novos efeitos
 - [ ] Etapa 2: Escolha e prévia na interface
+
+Etapa 0 verificada: o catálogo inventaria os efeitos `xfade` do FFmpeg instalado
+e seleciona sete presets: corte seco (0 s), fusão (0,25 s), deslizamento e
+varredura (0,25 s), revelação (0,30 s), zoom (0,35 s) e desfoque (0,30 s).
+Movimento e revelação aceitam esquerda/direita/cima/baixo; a fusão oferece
+intensidade suave/normal/marcada; os demais usam intensidade fixa. O código
+quantiza tempos a 30 fps e rejeita duração, direção, intensidade ou intervalo
+incompatível com o cutaway ou a emenda antes do render. Sete MP4s sintéticos
+de 4,5 s mostram entrada e saída em `output/parte6_etapa0_catalogo/`, com
+`index.html` e `catalogo.json` (inventário e custo local medido). Os 22 testes
+focados passaram após o ajuste de FPS; a suíte completa teve 603 testes
+aprovados e 19 integrações não executadas. Ruff, doctor, build do frontend e
+revisão independente aprovaram. A escolha estética das prévias está em
+`testes-pendentes.md`.
