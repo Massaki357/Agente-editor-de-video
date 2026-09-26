@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -28,6 +29,11 @@ from src.transcribe import Palavra
 FONTS_DIR = PROJECT_ROOT / "fonts"
 FONTE_PADRAO = "Poppins"
 ARQUIVO_FONTE = {"Poppins": "Poppins-Bold.ttf"}
+
+# Alinhamento vertical (numpad do .ass): 2 = base, 5 = meio, 8 = topo. Sempre centralizado
+# na horizontal (a legenda não usa 1/3/4/6/7/9).
+Alinhamento = Literal["inferior", "centro", "superior"]
+_ALINHAMENTO_ASS = {"inferior": 2, "centro": 5, "superior": 8}
 
 _PONTUACAO_FINAL = re.compile(r"[.!?…]+[\"')\]]*$")
 _LIMPA_BORDAS = re.compile(r"^[\"'(\[«“]+|[,;:.…\"')\]»”]+$")
@@ -45,8 +51,17 @@ class CaptionStyle(BaseModel):
     cor_contorno: str = Field("#000000", pattern=r"^#[0-9A-Fa-f]{6}$")
     contorno: float = Field(7.0, ge=0, le=20)
     sombra: float = Field(3.0, ge=0, le=20)
+    negrito: bool = Field(True, description="peso do texto: negrito (padrão) ou regular")
+    fundo: bool = Field(False, description="caixa opaca atrás do texto, além do contorno")
+    alinhamento: Alinhamento = Field(
+        "inferior", description="âncora vertical da legenda: base, meio ou topo da tela"
+    )
     margem_inferior: int = Field(
-        520, ge=0, le=1500, description="px entre a base da legenda e a borda de baixo"
+        520,
+        ge=0,
+        le=1500,
+        description="px entre a legenda e a borda da tela mais próxima do alinhamento "
+        "escolhido (base, se inferior; topo, se superior; ignorado se centro)",
     )
     margem_lateral: int = Field(70, ge=0, le=400)
     maiusculas: bool = True
@@ -86,11 +101,21 @@ class CaptionStyle(BaseModel):
         folga = int(self.contorno + self.sombra) + 12
         # altura da linha: ascendente + descendente da fonte (~1,4 em na Poppins)
         alt_linha = int(self.tamanho * 1.4 * self.destaque_escala / 100)
-        y_base = altura - self.margem_inferior
-        x = max(0, self.margem_lateral - folga)
         # acentos de maiúsculas (Í, Ê, À) sobem acima da linha: +0,15 em no topo
-        y = max(0, y_base - alt_linha - folga - int(0.15 * self.tamanho))
-        return x, y, min(largura, largura - 2 * x), min(y_base + folga - y, altura - y)
+        acento = int(0.15 * self.tamanho)
+        x = max(0, self.margem_lateral - folga)
+        w = min(largura, largura - 2 * x)
+        if self.alinhamento == "superior":
+            y = max(0, self.margem_inferior - folga)
+            h = min(alt_linha + acento + 2 * folga, altura - y)
+        elif self.alinhamento == "centro":
+            y = max(0, round(altura / 2 - alt_linha / 2 - acento - folga))
+            h = min(alt_linha + acento + 2 * folga, altura - y)
+        else:  # inferior (comportamento original, preset default)
+            y_base = altura - self.margem_inferior
+            y = max(0, y_base - alt_linha - folga - acento)
+            h = min(y_base + folga - y, altura - y)
+        return x, y, w, h
 
 
 @dataclass(frozen=True)
@@ -257,7 +282,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Legenda,{style.fonte},{ass_font_size(style)},{_cor_ass(style.cor)},{_cor_ass(style.cor_destaque)},{_cor_ass(style.cor_contorno)},{_cor_ass("#000000", 0x80)},-1,0,0,0,100,100,0,0,1,{style.contorno:g},{style.sombra:g},2,{style.margem_lateral},{style.margem_lateral},{style.margem_inferior},1
+Style: Legenda,{style.fonte},{ass_font_size(style)},{_cor_ass(style.cor)},{_cor_ass(style.cor_destaque)},{_cor_ass(style.cor_contorno)},{_cor_ass("#000000", 0x80)},{-1 if style.negrito else 0},0,0,0,100,100,0,0,{3 if style.fundo else 1},{style.contorno:g},{style.sombra:g},{_ALINHAMENTO_ASS[style.alinhamento]},{style.margem_lateral},{style.margem_lateral},{style.margem_inferior},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

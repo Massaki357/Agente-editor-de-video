@@ -25,6 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 from src.audio.optimize import AudioParams, cached_audio
+from src.caption_presets import resolved_style
 from src.captions import CaptionStyle, write_captions
 from src.clips import project_from_files, project_from_folder
 from src.config import Settings, get_settings
@@ -71,7 +72,10 @@ class PipelineOptions(BaseModel):
     reenquadrar: bool = True  # 9:16 (1080x1920) seguindo o rosto; False = quadro original
     legendas_continuas: bool = True
     legendas_destaque: bool = False
-    estilo_legenda: CaptionStyle = CaptionStyle()
+    preset_legenda: str = "default"  # nome em src.caption_presets; desconhecido cai no default
+    estilo_legenda: CaptionStyle | None = Field(
+        None, description="sobrescreve o preset com um estilo explícito, quando informado"
+    )
     estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)
     imagens: bool = True  # imagens sobre a fala (LLM escolhe as palavras; precisa de chave)
     sticker: bool = False  # recorta o fundo das imagens (rembg; 1º uso baixa o modelo)
@@ -293,8 +297,7 @@ def image_plan(
             novo = PlanoImagens(assinatura=timeline_signature(project))
     if options.legendas_destaque and (
         novo.versao_destaques < 2
-        or novo.duracao_permanencia_destaques
-        != options.estilo_destaque.duracao_permanencia
+        or novo.duracao_permanencia_destaques != options.estilo_destaque.duracao_permanencia
         or any(len(item.texto.split()) > 5 for item in novo.destaques)
     ):
         on_step("destaques", 0.0)
@@ -302,9 +305,7 @@ def image_plan(
             project,
             novo,
             transcriber=lambda path: transcribe_clip(path),
-            params=DestaqueParams(
-                duracao_permanencia=options.estilo_destaque.duracao_permanencia
-            ),
+            params=DestaqueParams(duracao_permanencia=options.estilo_destaque.duracao_permanencia),
             settings=options.llm_settings(),
         )
         on_step("destaques", 1.0)
@@ -373,7 +374,7 @@ def render_project(
 
     output.parent.mkdir(parents=True, exist_ok=True)
     legendas = None
-    estilo = options.estilo_legenda.for_output(size)
+    estilo = resolved_style(options.preset_legenda, options.estilo_legenda).for_output(size)
     if options.legendas_continuas:
         t0 = time.perf_counter()
         legendas = make_captions(project, output.with_suffix(".ass"), options, size, on_step)
@@ -479,13 +480,15 @@ def render_project(
 
         if required_element_id is not None:
             if required_element_id.startswith("img_"):
-                visible = any(
-                    f"img_{ov.item_id:03d}" == required_element_id for ov in overlays
-                )
+                visible = any(f"img_{ov.item_id:03d}" == required_element_id for ov in overlays)
             elif required_element_id.startswith("broll_") and plano_usado is not None:
                 selected = next(
-                    (item for item in plano_usado.broll
-                     if f"broll_{item.id:03d}" == required_element_id), None
+                    (
+                        item
+                        for item in plano_usado.broll
+                        if f"broll_{item.id:03d}" == required_element_id
+                    ),
+                    None,
                 )
                 visible = selected is not None and any(
                     c.clipe == selected.clipe
@@ -599,7 +602,8 @@ def limitar_intensidade_zooms(
     """Limita o pico de cada zoom editado sem ultrapassar o limite seguro do rosto."""
     caps = {
         (item.inicio, item.fim): item.intensidade
-        for item in plano.zooms if item.ativo and item.intensidade is not None
+        for item in plano.zooms
+        if item.ativo and item.intensidade is not None
     }
     return [(a, b, min(pico, caps.get((a, b), pico))) for a, b, pico in zooms]
 
@@ -626,7 +630,8 @@ def make_captions(
     if not any(ws for ws, _ in por_clipe):
         log.info("Sem fala transcrita: vídeo sem legendas.")
         return None
-    return write_captions(por_clipe, path, options.estilo_legenda.for_output(size), size)
+    estilo = resolved_style(options.preset_legenda, options.estilo_legenda).for_output(size)
+    return write_captions(por_clipe, path, estilo, size)
 
 
 def face_tracks(project: Project, on_step: StepCallback = _noop) -> dict[int, FaceTrack | None]:
