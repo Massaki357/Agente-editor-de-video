@@ -223,6 +223,11 @@ def test_broll_options_are_saved_and_reused(client, video_dir, monkeypatch):
     assert {key: captured[1][key] for key in options} == options
     saved = get_settings().data_dir / "projects" / pid / "project.json"
     assert '"broll_transition": "wipe"' in saved.read_text(encoding="utf-8")
+    new_effect = {**options, "broll_transition": "zoom"}
+    r = client.post(f"/api/projects/{pid}/jobs", json={"tipo": "broll", "opcoes": new_effect})
+    assert r.status_code == 202, r.text
+    assert client.get(f"/api/projects/{pid}").json()["broll_transition"] == "zoom"
+    assert '"broll_transition": "zoom"' in saved.read_text(encoding="utf-8")
     for invalid in (-1, 7.99, 30.01):
         r = client.post(
             f"/api/projects/{pid}/jobs",

@@ -81,7 +81,9 @@ class PipelineOptions(BaseModel):
     parametros_zoom: ZoomParams = ZoomParams()
     broll: bool = False  # cutaways aprovados substituem a câmera em frases inteiras
     broll_intervalo_min: float = Field(8.0, ge=8.0, le=30.0)
-    broll_transition: Literal["hard_cut", "crossfade", "slide", "wipe"] = "hard_cut"
+    broll_transition: Literal[
+        "hard_cut", "crossfade", "slide", "wipe", "reveal", "zoom", "blur"
+    ] = "hard_cut"
     min_silencio: float = CutParams().min_silencio
     margem: float = CutParams().margem
     ruido_db: float = CutParams().ruido_db
@@ -534,6 +536,7 @@ def render_project(
                 audios=limpos,
                 broll=cutaways,
                 broll_transition=options.broll_transition,
+                transition_warnings=avisos_audio,
             )
             segmentos_renderizados = segmentos_reutilizados = 0
         else:
@@ -555,6 +558,7 @@ def render_project(
                 audios=limpos,
                 broll=cutaways,
                 broll_transition=options.broll_transition,
+                transition_warnings=avisos_audio,
                 ids_alterados=ids_alterados,
                 preview_range=preview_range,
                 mute_audio=mute_preview_audio,

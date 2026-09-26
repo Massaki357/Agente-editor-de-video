@@ -55,8 +55,9 @@ def plan_edit_segments(
     overlay_ids = {f"img_{item.item_id:03d}" for item in overlays}
     broll_ranges = [(round(c.inicio * fps), round(c.fim * fps)) for c in broll]
     gap_frames = max(1, round(max_gap * fps))
-    trans_frames = round(0.25 * fps) if broll_transition != "hard_cut" else 0
-    guard_frames = max(1, trans_frames)
+    # Reserva a margem máxima do catálogo mesmo no corte seco. Assim, trocar só
+    # o efeito não muda os limites dos segmentos nem invalida caches vizinhos.
+    guard_frames = max(1, round(0.5 * fps)) if broll else 1
     ids_visiveis: set[str] = set()
     for elemento in documento.elementos:
         if not elemento.ativo or elemento.obsoleto:

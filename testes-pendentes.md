@@ -97,8 +97,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 
 ### Catálogo de transições adicionais (25/09/2026)
 
+- ✅ **P6-E1: render dos sete efeitos validado automaticamente.** Vídeo sintético e recorte real reduzido a 360x640: 120 quadros, 4,0 s, áudio idêntico em todos os presets. Testes de borda com fontes em movimento não encontraram quadros pretos ou repetidos; fallback para corte seco e invalidação localizada do cache foram testados. Medidas de latência e memória: `output/parte6_etapa1_benchmark.json` (gerado com `uv run python -m src.broll.benchmark --real ../output/samples_palestra_9x16.mp4 --output ../output/parte6_etapa1_benchmark.json` em `API/`).
+- 👀 **P6-C1: conferir o estilo dos efeitos no seu vídeo quando a Etapa 2 liberar a escolha na interface.** Compare revelação, zoom e desfoque na entrada e na volta do B-roll, verificando se o efeito combina com a fala e não distrai. A integridade de quadros, duração e áudio já foi testada automaticamente.
+
 - ✅ **P6-E0: catálogo validado tecnicamente.** Sete presets com limites e custo relativo; sete prévias sintéticas de 135 quadros mostram entrada e saída. A validação rejeita parâmetros inválidos, cutaways curtos e emendas antes do render. Os 22 testes focados, Ruff, doctor, build e revisão independente passaram; a suíte completa teve 603 testes aprovados e 19 integrações não executadas.
-- 👀 **P6-C0: conferir os sete presets quando puder.** Abra `output/parte6_etapa0_catalogo/index.html` e assista às prévias sintéticas de corte seco, fusão, deslizamento, varredura, revelação, zoom e desfoque. Cada vídeo mostra câmera → B-roll → câmera. Confira se a entrada e a saída são perceptíveis e quais efeitos combinam com o estilo desejado; nenhum arquivo novo em `samples/` é necessário. Os novos presets ainda não estão ligados ao render final (Etapa 1).
+- 👀 **P6-C0: conferir os sete presets quando puder.** Abra `output/parte6_etapa0_catalogo/index.html` e assista às prévias sintéticas de corte seco, fusão, deslizamento, varredura, revelação, zoom e desfoque. Cada vídeo mostra câmera → B-roll → câmera. Confira se a entrada e a saída são perceptíveis e quais efeitos combinam com o estilo desejado; nenhum arquivo novo em `samples/` é necessário.
 
 ### Interface do chat pós-render (25/09/2026)
 

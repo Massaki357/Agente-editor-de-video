@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -125,7 +125,9 @@ def _hash_segment(
             if _overlap(ov.inicio, ov.fim, seg.t_out, end)
         ],
         "broll": [
-            [c.inicio, c.fim, c.clipe, file_hash(c.arquivo)]
+            [c.inicio, c.fim, c.clipe, file_hash(c.arquivo),
+             asdict(c.entrada) if c.entrada else None,
+             asdict(c.saida) if c.saida else None]
             for c in broll
             if _overlap(c.inicio, c.fim, seg.t_out, end)
         ],
@@ -148,6 +150,7 @@ def _render_one(
     overlays: Sequence[Overlay],
     broll: Sequence[Cutaway],
     transition: Transition,
+    transition_warnings: list[str] | None = None,
 ) -> None:
     from src.broll.transitions import Cutaway, apply_cutaways
 
@@ -166,7 +169,8 @@ def _render_one(
             if any(c.inicio < seg.t_out - 1e-6 or c.fim >= end - 1e-6 for c in locais):
                 raise RenderError("segmento não contém o B-roll e seu retorno à câmera")
             shifted = [
-                Cutaway(c.inicio - seg.t_out, c.fim - seg.t_out, c.arquivo, c.clipe)
+                Cutaway(c.inicio - seg.t_out, c.fim - seg.t_out, c.arquivo, c.clipe,
+                        c.entrada, c.saida)
                 for c in locais
             ]
             base = apply_cutaways(
@@ -176,6 +180,7 @@ def _render_one(
                 [replace(seg, t_out=0.0)],
                 settings.fps,
                 transition=transition,
+                warnings=transition_warnings,
             )
         visible_overlays = [
             ov for ov in overlays if _overlap(ov.inicio, ov.fim, seg.t_out, end)
@@ -211,6 +216,7 @@ def render_incremental(
     overlays: Sequence[Overlay] = (),
     broll: Sequence[Cutaway] = (),
     broll_transition: Transition = "hard_cut",
+    transition_warnings: list[str] | None = None,
     audios: Mapping[int, Path] | None = None,
     ids_alterados: set[str] | None = None,
     force_full: bool = False,
@@ -230,7 +236,7 @@ def render_incremental(
     if broll:
         from src.broll.transitions import validate_cutaways
 
-        validate_cutaways(broll, base, fps, broll_transition, 0.25)
+        validate_cutaways(broll, base, fps, broll_transition, 0.25, transition_warnings)
     width, height = _output_size(size, metas[base[0].clip_index])
     settings = RenderSettings(width, height, fps, sample_rate, fade)
     legendas_eventos = eventos_ass(legendas) if legendas is not None else []
@@ -296,6 +302,7 @@ def render_incremental(
             _render_one(
                 item, dest, settings, cameras or {}, zoom, legendas, overlays, broll,
                 broll_transition,
+                transition_warnings,
             )
             rendered += 1
             rendered_frames += seg.frames

@@ -71,7 +71,9 @@ class ProjectOut(ProjectSummary):
     suavizacao_estabilizacao: Literal["leve", "medio", "forte"] = "medio"
     broll: bool = False
     broll_intervalo_min: float = 8.0
-    broll_transition: Literal["hard_cut", "crossfade", "slide", "wipe"] = "hard_cut"
+    broll_transition: Literal[
+        "hard_cut", "crossfade", "slide", "wipe", "reveal", "zoom", "blur"
+    ] = "hard_cut"
     legendas_continuas: bool = True
     legendas_destaque: bool = False
     estilo_destaque: HighlightStyle = Field(default_factory=HighlightStyle)

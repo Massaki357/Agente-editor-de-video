@@ -133,6 +133,7 @@ def render_timeline(
     audios: Mapping[int, Path] | None = None,
     broll: Sequence[Cutaway] = (),
     broll_transition: Transition = "hard_cut",
+    transition_warnings: list[str] | None = None,
 ) -> Path:
     """Renderiza a timeline em `output` (.mp4, H.264 + AAC).
 
@@ -193,6 +194,7 @@ def render_timeline(
                 segments,
                 fps,
                 transition=broll_transition,
+                warnings=transition_warnings,
             )
         final = _second_pass(concatenated, tmp, timeline, settings, legendas, overlays)
         if final != output:

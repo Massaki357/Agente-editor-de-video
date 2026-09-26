@@ -757,7 +757,7 @@ Ampliar os efeitos entre câmera, B-roll e outros elementos da timeline. A Parte
 ## Checklist Parte 6
 
 - [x] Etapa 0: Catálogo e parâmetros
-- [ ] Etapa 1: Render e testes dos novos efeitos
+- [x] Etapa 1: Render e testes dos novos efeitos
 - [ ] Etapa 2: Escolha e prévia na interface
 
 Etapa 0 verificada: o catálogo inventaria os efeitos `xfade` do FFmpeg instalado
@@ -773,3 +773,15 @@ focados passaram após o ajuste de FPS; a suíte completa teve 603 testes
 aprovados e 19 integrações não executadas. Ruff, doctor, build do frontend e
 revisão independente aprovaram. A escolha estética das prévias está em
 `testes-pendentes.md`.
+
+Etapa 1 implementada: os sete presets entram no render de B-roll; cada entrada
+e saída pode ter configuração própria em `TransitionConfig`. O áudio é copiado
+da câmera, e o filtro ausente cai para corte seco com aviso. As emendas entre
+clipes permanecem sem efeitos porque seus tempos e o áudio não podem mudar.
+O benchmark reproduzível em `API/src/broll/benchmark.py` mediu 120 quadros,
+4,0 s e áudio idêntico nos sete presets, tanto em fonte sintética quanto em
+um recorte real reduzido a 360x640. Latência do efeito: 0,23–0,38 s; pico de
+memória do processo FFmpeg: 145–172 MiB nesta máquina. Medidas detalhadas:
+`output/parte6_etapa1_benchmark.json`. A seleção individual persistida e a
+prévia na interface são da Etapa 2.
+Os testes automatizados, doctor, Ruff e a revisão independente aprovaram a etapa.

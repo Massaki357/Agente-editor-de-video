@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.broll.transitions import Cutaway, select_items
+from src.broll.transitions import Cutaway, TransitionConfig, apply_cutaways, select_items
 from src.images import ItemImagem, ItemZoom, Overlay, PlanoImagens, timeline_signature
 from src.pipeline import PipelineOptions, render_project
 from src.project import Clip, Project, Timeline
@@ -125,7 +125,9 @@ def _audio(path: Path) -> bytes:
     ).stdout
 
 
-@pytest.mark.parametrize("transition", ["hard_cut", "crossfade", "slide", "wipe"])
+@pytest.mark.parametrize("transition", [
+    "hard_cut", "crossfade", "slide", "wipe", "reveal", "zoom", "blur",
+])
 def test_cutaway_keeps_video_duration_and_original_voice(tmp_path, transition):
     camera = make_video(tmp_path / "camera.mp4", duration=4, size="160x288")
     blue = _blue(tmp_path / "blue.mp4")
@@ -222,6 +224,78 @@ def test_effect_reveals_next_scene_across_the_frame(tmp_path, transition):
         assert abs(int(left[2]) - int(right[2])) > 80
 
 
+def test_independent_entry_exit_and_unavailable_effect_fallback(tmp_path, monkeypatch):
+    import src.broll.transitions as transitions
+    from src.render import _clip_meta, plan_segments
+
+    camera = make_video(tmp_path / "camera.mp4", duration=4, size="160x288")
+    blue = _blue(tmp_path / "blue.mp4")
+    timeline = Timeline(clipes=[Clip(arquivo=str(camera), trechos=[(0, 4)])])
+    segments = plan_segments(timeline, [_clip_meta(str(camera), None)], FPS)
+    cut = Cutaway(
+        1, 2.5, blue, 0,
+        TransitionConfig("reveal", duration=0.4, direction="up"),
+        TransitionConfig("blur", duration=0.3),
+    )
+    baseline = render_timeline(timeline, tmp_path / "baseline.mp4", size=SIZE)
+    complete = apply_cutaways(
+        baseline, tmp_path / "complete.mp4", [cut], segments, FPS,
+    )
+    assert len(_frames(complete)) == 120
+    assert _audio(baseline) == _audio(complete)
+    available = transitions.installed_xfade_effects()
+    monkeypatch.setattr(transitions, "installed_xfade_effects", lambda: available - {"hblur"})
+    warnings = []
+    fallback = apply_cutaways(
+        baseline, tmp_path / "fallback.mp4", [cut], segments, FPS,
+        warnings=warnings,
+    )
+    assert len(_frames(fallback)) == 120
+    assert _audio(baseline) == _audio(fallback)
+    assert len(warnings) == 1 and "hblur" in warnings[0] and "corte seco" in warnings[0]
+    # Entrada continua animada; a saída sem filtro troca no quadro marcado.
+    frames = _frames(fallback)
+    assert frames[74, 144, 80, 2] > 140
+    assert np.mean(np.abs(frames[75].astype(int) - _frames(baseline)[75].astype(int))) < 5
+
+
+def test_invalid_parameters_fail_before_render(tmp_path):
+    camera = make_video(tmp_path / "camera.mp4", duration=4, size="160x288")
+    blue = _blue(tmp_path / "blue.mp4")
+    timeline = Timeline(clipes=[Clip(arquivo=str(camera), trechos=[(0, 4)])])
+    with pytest.raises(ValueError, match="direção inválida"):
+        render_timeline(
+            timeline, tmp_path / "invalid.mp4", size=SIZE,
+            broll=[Cutaway(1, 2.5, blue, 0,
+                           entrada=TransitionConfig("zoom", direction="left"))],
+        )
+
+
+@pytest.mark.parametrize("transition", [
+    "hard_cut", "crossfade", "slide", "wipe", "reveal", "zoom", "blur",
+])
+def test_moving_sources_have_no_black_or_frozen_boundary_frames(tmp_path, transition):
+    camera = make_video(tmp_path / "camera.mp4", duration=4, size="160x288")
+    broll = tmp_path / "moving.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc=s=160x288:r=30:d=2",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(broll)],
+        capture_output=True, check=True,
+    )
+    timeline = Timeline(clipes=[Clip(arquivo=str(camera), trechos=[(0, 4)])])
+    output = render_timeline(
+        timeline, tmp_path / "result.mp4", size=SIZE,
+        broll=[Cutaway(1, 2.5, broll, 0)], broll_transition=transition,
+    )
+    frames = _frames(output)
+    for start, end in ((27, 34), (72, 79)):
+        window = frames[start:end]
+        assert all(frame.mean() > 10 for frame in window)
+        assert all(np.mean(np.abs(a.astype(int) - b.astype(int))) > 0.1
+                   for a, b in zip(window, window[1:], strict=False))
+
+
 def test_saved_plan_enters_pipeline_and_missing_video_keeps_camera(tmp_path, monkeypatch):
     import src.broll.transitions as transitions
     import src.pipeline as pipeline
@@ -272,6 +346,15 @@ def test_saved_plan_enters_pipeline_and_missing_video_keeps_camera(tmp_path, mon
     result = render_project(project, tmp_path / "with_broll.mp4", options, plano=plan)
     assert result.broll == 1 and result.plano is plan
     assert _frames(Path(result.video))[50, 144, 80, 2] > 140
+
+    available = transitions.installed_xfade_effects()
+    monkeypatch.setattr(transitions, "installed_xfade_effects", lambda: available - {"hblur"})
+    with_fallback = render_project(
+        project, tmp_path / "fallback.mp4",
+        options.model_copy(update={"broll_transition": "blur"}), plano=plan,
+    )
+    assert any("hblur" in warning and "corte seco" in warning
+               for warning in with_fallback.avisos)
 
     monkeypatch.setattr(transitions, "prepare_item", lambda *a, **k: None)
     fallback = render_project(project, tmp_path / "camera_only.mp4", options, plano=plan)

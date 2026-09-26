@@ -216,3 +216,41 @@ def test_broll_slide_reuses_unaffected_segments(tmp_path):
     )
     assert np.array_equal(_frames(changed.output), _frames(clean.output))
     assert _audio(changed.output) == _audio(clean.output)
+
+
+@requires_ffmpeg
+def test_changing_only_transition_reuses_unaffected_segments(tmp_path):
+    from src.broll.transitions import TransitionConfig
+
+    clip = tmp_path / "camera.mp4"
+    _video(clip)
+    broll = tmp_path / "broll.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc2=s=160x288:r=30:d=2",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", str(broll)],
+        check=True, capture_output=True,
+    )
+    timeline = _timeline(clip)
+    documento = DocumentoEdicao(elementos=[
+        Elemento(id="broll_001", tipo="broll", inicio=2, fim=3, dados={"query": "teste"})
+    ])
+    cache = tmp_path / "cache"
+    first = render_incremental(
+        timeline, documento, tmp_path / "first.mp4", cache,
+        size=(160, 288), broll=[Cutaway(2, 3, broll, 0)],
+    )
+    changed_cut = Cutaway(
+        2, 3, broll, 0,
+        TransitionConfig("zoom", duration=0.35),
+        TransitionConfig("reveal", direction="up"),
+    )
+    second = render_incremental(
+        timeline, documento, tmp_path / "second.mp4", cache,
+        size=(160, 288), broll=[changed_cut],
+    )
+    assert second.renderizados < first.renderizados
+    assert second.renderizados >= 1
+    assert second.reutilizados > 0
+    assert not np.array_equal(_frames(first.output), _frames(second.output))
+    assert _audio(first.output) == _audio(second.output)
