@@ -28,7 +28,11 @@ from src.transcribe import Palavra
 
 FONTS_DIR = PROJECT_ROOT / "fonts"
 FONTE_PADRAO = "Poppins"
-ARQUIVO_FONTE = {"Poppins": "Poppins-Bold.ttf"}
+ARQUIVO_FONTE = {
+    "Poppins": "Poppins-Bold.ttf",
+    "Poppins Regular": "Poppins-Regular.ttf",
+    "Roboto Slab": "RobotoSlab-Variable.ttf",
+}
 
 # Alinhamento vertical (numpad do .ass): 2 = base, 5 = meio, 8 = topo. Sempre centralizado
 # na horizontal (a legenda não usa 1/3/4/6/7/9).

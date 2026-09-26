@@ -84,6 +84,7 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 | C3a | 4 | Compare `output/etapa4_original_erros.mp4` com `output/etapa4_resultado.mp4`: os cortes de erros de fala soam naturais e nada importante sumiu | 👀 |
 | C4a | 5 | Assista `output/etapa5_debug_rosto.mp4`: a caixa verde acompanha o rosto sem tremer | 👀 |
 | C6a | 6 | Compare `output/etapa6_demo_original.mp4` com `output/etapa6_demo_9x16.mp4`: o rosto fica centralizado, a câmera anda suave e o áudio bate com o vídeo | 👀 |
+| CCT3 | Caption/Transitions, Etapa 3 | Assista `output/caption_styles_etapa3.mp4`: a mesma frase aparece, nesta ordem, em `clean` (0–3 s), `bold` (3–6 s), `minimal` (6–9 s), `cinematic` (9–12 s), `social` (12–15 s) e `karaoke` (15–18 s). Confira legibilidade, tamanho, posição e se os seis estilos são úteis e suficientemente distintos. O mapa também está em `output/caption_styles_etapa3.json` | 👀 |
 
 ### Interface
 
@@ -94,6 +95,11 @@ Abra os vídeos num player que mostre o tempo em segundos (o VLC, por exemplo).
 ---
 
 ## Histórico
+
+### Caption Style Engine (26/09/2026)
+
+- ✅ **Etapa 3 validada tecnicamente.** Seis presets próprios e genéricos cobrem três tipografias, diferentes tamanhos, pesos, contornos, sombras, fundo, margens, posições, cores, destaque por palavra e agrupamentos. Testes verificam Unicode e safe areas em 9:16 e 16:9. O vídeo sintético tem 18,02 s, 540 quadros a 30 fps e áudio; suíte completa com 645 testes aprovados e 19 integrações não executadas, Ruff e Doctor aprovados.
+- 👀 **CCT3: aprovação visual dos presets.** Assista `output/caption_styles_etapa3.mp4` antes da Etapa 4 e informe quais estilos devem ser mantidos ou ajustados.
 
 ### Catálogo de transições adicionais (25/09/2026)
 

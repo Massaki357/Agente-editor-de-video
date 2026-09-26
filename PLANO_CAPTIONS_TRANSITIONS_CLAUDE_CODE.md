@@ -283,30 +283,30 @@ Adicionar diversidade visual real às legendas.
 
 Implemente pelo menos:
 
--   [ ] `clean`
--   [ ] `bold`
--   [ ] `minimal`
--   [ ] `cinematic`
--   [ ] `social`
--   [ ] `karaoke`
+-   [x] `clean`
+-   [x] `bold`
+-   [x] `minimal`
+-   [x] `cinematic`
+-   [x] `social`
+-   [x] `karaoke`
 
 Os nomes podem ser adaptados se o projeto já possuir convenção própria.
 
 ## Recursos
 
--   [ ] Variação de tipografia.
--   [ ] Tamanho.
--   [ ] Peso.
--   [ ] Contorno.
--   [ ] Sombra.
--   [ ] Background quando aplicável.
--   [ ] Margens.
--   [ ] Posicionamento.
--   [ ] Cores configuráveis.
--   [ ] Destaque de palavra quando suportado pelo preset.
--   [ ] Quebra de linha adequada.
--   [ ] Safe area para vídeos verticais e horizontais.
--   [ ] Preservar caracteres acentuados/Unicode usados pelo projeto.
+-   [x] Variação de tipografia.
+-   [x] Tamanho.
+-   [x] Peso.
+-   [x] Contorno.
+-   [x] Sombra.
+-   [x] Background quando aplicável.
+-   [x] Margens.
+-   [x] Posicionamento.
+-   [x] Cores configuráveis.
+-   [x] Destaque de palavra quando suportado pelo preset.
+-   [x] Quebra de linha adequada.
+-   [x] Safe area para vídeos verticais e horizontais.
+-   [x] Preservar caracteres acentuados/Unicode usados pelo projeto.
 
 ## Importante
 
@@ -322,9 +322,23 @@ renderizado com cada preset.
 
 ## **Presets implementados:**
 
+`clean`, `bold`, `minimal`, `cinematic`, `social` e `karaoke`. Os seis
+mantêm o destaque sincronizado por palavra e variam tipografia, tamanho,
+peso, contorno, sombra, fundo, agrupamento, margens, posição e cores.
+O preset `default` continua idêntico ao comportamento anterior.
+
 ## **Arquivos alterados:**
 
+`API/src/caption_presets.py`, `API/src/captions.py`,
+`API/src/caption_style_demo.py`, `API/tests/test_caption_style_library.py`
+e as fontes/licenças em `API/fonts/`.
+
 ## **Teste visual:**
+
+`output/caption_styles_etapa3.mp4` contém 18 segundos, 540 quadros a 30 fps,
+vídeo H.264 e áudio AAC. O mesmo texto e a mesma cena são repetidos nos seis
+presets; `output/caption_styles_etapa3.json` informa a ordem e os intervalos.
+A checagem humana está registrada em `testes-pendentes.md`.
 
 ### ⛔ PARADA OBRIGATÓRIA 3
 
@@ -734,7 +748,7 @@ sem nova autorização.
 
 -   [x] Etapa 1 --- Auditoria
 -   [x] Etapa 2 --- Fundação Caption Engine
--   [ ] Etapa 3 --- Estilos de legenda
+-   [x] Etapa 3 --- Estilos de legenda
 -   [ ] Etapa 4 --- Animações de legenda
 -   [ ] Etapa 5 --- Fundação Transition Engine
 -   [ ] Etapa 6 --- Transições básicas
